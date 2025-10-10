@@ -1,127 +1,91 @@
-﻿#Author	Kiconex - Samuel Ali 
-#Description	Conversion of data table format of variables
-#Version	1.0
-#Name	1tools - Convert Data Table Format
-#Type	Application
+﻿# Author Kiconex - Samuel Ali 
+# Description    Conversion of data table format of variables from HTML to Excel using pandas.
+# Version    2.0
+# Name   1tools - Convert Data Table Format
+# Type   Application
 
 import sys
 from pathlib import Path
-from typing import Tuple
+from typing import List
 import pandas as pd
-from bs4 import BeautifulSoup
+from openpyxl import Workbook 
 
-def read_html_file(filepath: str) -> Tuple[str, str]:
-    p = Path(filepath)
-    if not p.exists():
-        raise FileNotFoundError(f"Archivo no encontrado: {filepath}")
+def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx"):
+    """
+    Lee un archivo HTML, extrae todas las tablas y las guarda como
+    hojas separadas en un archivo Excel.
+    """
+    input_file = Path(input_path)
+    if not input_file.exists():
+        print(f"Error: Archivo no encontrado en la ruta: {input_path}")
+        sys.exit(1)
 
-    raw = p.read_bytes()
+    print(f"Leyendo tablas del archivo HTML: {input_path}")
 
-    # Detectar BOM simple
-    enc = None
-    if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
-        enc = 'utf-16'
-    elif raw.startswith(b'\xef\xbb\xbf'):
-        enc = 'utf-8-sig'
+    try:
+        # Usamos pd.read_html() que es la forma más simple y robusta
+        # para extraer tablas sin row/colspan complejos de HTML.
+        # Devuelve una lista de DataFrames.
+        list_of_dataframes: List[pd.DataFrame] = pd.read_html(
+            str(input_file),
+            header=0,  # Usa la primera fila como encabezado (lo que hace <th>)
+            flavor='bs4' # Usa BeautifulSoup como parser
+        )
+    except ValueError:
+        print("Error: No se encontraron tablas válidas en el archivo HTML.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error al procesar el archivo HTML con pandas: {e}")
+        sys.exit(1)
 
-     # Si no hay BOM, probar varias codificaciones comunes
-    if enc is None:
-        for attempt in ('utf-16', 'utf-16-le', 'utf-16-be', 'utf-8', 'latin-1'):
-            try:
-                text = raw.decode(attempt)
-                enc = attempt
-                break
-            except (UnicodeDecodeError, LookupError):
-                continue
-        else:
-            raise UnicodeDecodeError("utf-8", b"", 0, 1, "No se pudo decodificar el archivo con encodings probados")
-    else:
-        text = raw.decode(enc)
+    if not list_of_dataframes:
+        print("No se encontraron tablas para exportar.")
+        sys.exit(0)
 
-    return text, enc
+    output_file = Path(output_path)
+    print(f"Escribiendo {len(list_of_dataframes)} tablas en '{output_file.resolve()}'...")
 
-def html_to_dataexcel(table)->pd.DataFrame:
-    rows = []
-    occupied= {}
-    row_idx = 0
-    tr_tags= table.find_all('tr')
-    for tr in tr_tags:
-        row_cells = []
-        col_idx = 0
-        cells= tr.find_all(['td', 'th'])
-        cell_iter= iter(cells)
-        while True:
-            while (row_idx, col_idx) in occupied:
-                row_cells.append(occupied[(row_idx, col_idx)])
-                col_idx += 1
-                try:
-                    cell = next(cell_iter)
-                except StopIteration:
-                    break
+    # Usar ExcelWriter para escribir múltiples DataFrames en un solo archivo .xlsx
+    try:
+        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+            for i, df in enumerate(list_of_dataframes, start=1):
+                # Generar nombre de hoja seguro
+                sheet_name = f"Tabla_{i}"
 
-                cell_text = cell.get_text(separator=' ', strip=True)
-                colspan = int(cell.get('colspan', 1))
-                rowspan = int(cell.get('rowspan', 1))
+                # Tu tabla tiene un subtítulo 'Analog variables' que pd.read_html()
+                # probablemente capturó como una fila de datos. Lo eliminamos.
+                # Asumimos que la fila con 'Analog variables' no tiene números en la primera columna.
+                # Si el primer elemento de la primera columna no es un dígito, lo saltamos.
+                if not str(df.iloc[0, 0]).strip().isdigit():
+                    df = df.iloc[1:]
+                    # Opcional: Eliminar la columna 'Unnamed: 0' que a veces se crea
+                    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
-                for i in range(colspan):
-                    row_cells.append(cell_text)
-                    if rowspan > 1:
-                        for j in range(1, rowspan):
-                            occupied[(row_idx + j, col_idx)] = cell_text
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-                    col_idx += colspan
-                
-                while (row_idx, col_idx) in occupied:
-                    row_cells.append(occupied[(row_idx, col_idx)])
-                    col_idx += 1
-                
-                row.append(row_cells)
-                row_idx += 1
-            
-            max_cols = max((len(r) for r in rows), default=0)
-            for r in rows:
-                r += [''] * (max_cols - len(r))
-            
-            first_tr = table.find('tr')
-            if first_tr and first_tr.find_all('th'):
-                header = rows[0]
-                data = rows[1:]
-                df = pd.DataFrame(data, columns=header)
-            else:
-                df = pd.DataFrame(rows)
+        print(f"¡Éxito! ✅ Las tablas se han exportado a '{output_file.resolve()}'")
 
-            return df
+    except Exception as e:
+        print(f"Error al escribir el archivo Excel: {e}")
+        sys.exit(1)
+
 
 def main():
+    """Función principal para manejar la ruta de entrada."""
     if len(sys.argv) >= 2:
         path = sys.argv[1]
     else:
-        path = input("Ruta al archivo HTML: ").strip()
+        # El input es más sencillo si la función lee directamente el archivo.
+        # Podrías crear un archivo HTML local llamado 'input.html' con tu tabla
+        # y ejecutar el script sin argumentos.
+        # Por simplicidad, estableceremos un valor predeterminado para las pruebas.
+        default_path = "input.html"
+        path = input(f"Ruta al archivo HTML (deja vacío para '{default_path}'): ").strip()
+        if not path:
+             path = default_path
 
-    try:
-        html_text, encoding = read_html_file(path)
-    except Exception as e:
-        print("Error leyendo archivo:", e)
-        sys.exit(1)
+    convert_html_to_excel(path)
 
-    soup = BeautifulSoup(html_text, 'html.parser')
-    tables = soup.find_all('table')
-
-    if not tables:
-        print("No se encontraron tablas en el HTML.")
-        sys.exit(0)
-
-    output = Path("parametros.xlsx")
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        for i, table in enumerate(tables, start=1):
-            df = html_to_dataexcel(table)
-            sheet_name = f"tabla_{i}"
-           
-            sheet_name = sheet_name[:31].replace(':', '_').replace('/', '_').replace('\\', '_') \
-                                       .replace('?', '_').replace('*', '_').replace('[', '_').replace(']', '_')
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-    print(f"Se han escrito {len(tables)} tablas en '{output.resolve()}'")
 
 if __name__ == "__main__":
     main()
