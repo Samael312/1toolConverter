@@ -59,6 +59,16 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx")
                     df = df.iloc[1:]
                     # Opcional: Eliminar la columna 'Unnamed: 0' que a veces se crea
                     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+                
+                df["Hola"]= "alo"
+                df["Kiconex"]= "iconex"
+
+                COLUMN_TO_DELETE = "Category"
+
+                if COLUMN_TO_DELETE in df.columns:
+                    df = df.drop(columns=[COLUMN_TO_DELETE]) 
+                else:
+                    print(f"Advertencia: La columna '{COLUMN_TO_DELETE}' no se encontró en la tabla {i} y fue omitida.")
 
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
 
