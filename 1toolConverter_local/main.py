@@ -23,9 +23,6 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx")
     print(f"Leyendo tablas del archivo HTML: {input_path}")
 
     try:
-        # Usamos pd.read_html() que es la forma más simple y robusta
-        # para extraer tablas sin row/colspan complejos de HTML.
-        # Devuelve una lista de DataFrames.
         list_of_dataframes: List[pd.DataFrame] = pd.read_html(
             str(input_file),
             header=0,  # Usa la primera fila como encabezado (lo que hace <th>)
@@ -52,10 +49,6 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx")
                 # Generar nombre de hoja seguro
                 sheet_name = f"Tabla_{i}"
 
-                # Tu tabla tiene un subtítulo 'Analog variables' que pd.read_html()
-                # probablemente capturó como una fila de datos. Lo eliminamos.
-                # Asumimos que la fila con 'Analog variables' no tiene números en la primera columna.
-                # Si el primer elemento de la primera columna no es un dígito, lo saltamos.
                 if not str(df.iloc[0, 0]).strip().isdigit():
                     df = df.iloc[1:]
                     # Opcional: Eliminar la columna 'Unnamed: 0' que a veces se crea
@@ -75,10 +68,7 @@ def main():
     if len(sys.argv) >= 2:
         path = sys.argv[1]
     else:
-        # El input es más sencillo si la función lee directamente el archivo.
-        # Podrías crear un archivo HTML local llamado 'input.html' con tu tabla
-        # y ejecutar el script sin argumentos.
-        # Por simplicidad, estableceremos un valor predeterminado para las pruebas.
+
         default_path = "input.html"
         path = input(f"Ruta al archivo HTML (deja vacío para '{default_path}'): ").strip()
         if not path:
