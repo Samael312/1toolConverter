@@ -119,6 +119,10 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                 df['category'] = df['category'].astype(str).str.upper().str.strip()
                 df.loc[df['category'] == 'ALARMS', 'system_category'] = 'ALARM'
             
+            if 'name' in df.columns:
+                alarm_name_mask = df['name'].astype(str).str.upper().str.contains('Al', na=False)
+                df.loc[alarm_name_mask, 'system_category'] = "ALARM"
+            
             # --- Lógica de Asignación Específica por 'system_category' (Sobrescritura) ---
             if 'system_category' in df.columns:
                 df['system_category'] = df['system_category'].astype(str).str.upper().str.strip().replace(['', '---', 'nan'], np.nan)
@@ -217,7 +221,7 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                     (is_digital) & (is_read_only),
                     
                     # 6. ALARM
-                    (is_alarm) & (is_readable),
+                    (is_alarm) 
                 ]
                 
                 # 3. Construir la lista de opciones (debe coincidir con la cantidad de condiciones)
