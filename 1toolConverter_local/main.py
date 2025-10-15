@@ -25,6 +25,7 @@ COLUMN_MAPPING = {
     'Description': 'description',
     'Min': 'minvalue',
     'Max': 'maxvalue',
+    'Category': 'category',
     'UOM': 'unit',
     'Bms_Ofs': 'offset',
     'Bms_Type': 'system_category',
@@ -110,6 +111,20 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                 else:
                     df['read'] = 0
                     df['write'] = 0
+
+                if 'offset' in df.columns:
+                    df['offset'] = df['offset'].astype(str).str.strip().replace(['', '---', 'nan'], np.nan)
+                    df['offset'] = pd.to_numeric(df['offset'], errors='coerce') 
+                    df['offset'] = df['offset'].fillna(0.0)
+                
+                if 'unit' in df.columns:
+                    df['unit']= df['unit'].astype(str).str.strip().replace(['0','---', None], np.nan).fillna(' ')
+
+                if 'category' in df.columns:
+
+                    df['category'] = df['category'].astype(str).str.upper().str.strip()
+
+                    df.loc[df['category'] == 'ALARMS', 'system_category'] = 'ALARM'
                 
                 if 'system_category' in df.columns:
                   
@@ -117,20 +132,25 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
 
                     df.loc[df['system_category'] == 'ANALOG', 'read'] = 3
                     df.loc[df['system_category'] == 'ANALOG', 'write'] = 16
+                    df.loc[df['system_category'] == 'ANALOG', 'sampling'] = 60
 
                     df.loc[df['system_category'] == 'INTEGER', 'read'] = 3
                     df.loc[df['system_category'] == 'INTEGER', 'write'] = 16
+                    df.loc[df['system_category'] == 'INTEGER', 'sampling'] = 60
 
                     df.loc[df['system_category'] == 'DIGITAL', 'read'] = 1
                     df.loc[df['system_category'] == 'DIGITAL', 'write'] = 5
+                    df.loc[df['system_category'] == 'DIGITAL', 'sampling'] = 60
+
+                    df.loc[df['system_category'] == 'ALARM', 'read'] = 4
+                    df.loc[df['system_category'] == 'ALARM', 'write'] = 0
+                    df.loc[df['system_category'] == 'ALARM', 'sampling'] = 30
 
 
                 # 5. Añadir columnas de metadatos 
                 num_rows = len(df)
                 df["id"] = range(1, num_rows + 1)
-                df["category"] =  
                 df["view"] = "simple"
-                df["sampling"] = 60
                 df["addition"] = np.nan 
                 df["mask"] = np.nan
                 df["value"] = np.nan
