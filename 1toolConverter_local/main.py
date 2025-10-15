@@ -1,6 +1,6 @@
 ﻿# Author Kiconex - Samuel Ali 
 # Description    Conversion of data table format of variables from HTML to Excel using pandas.
-# Version    3.0 - Modificado para usar la estructura de columnas de Libreria Panasonic.
+# Version    3.0 
 # Name   1tools - Convert Data Table Format
 # Type   Application
 
@@ -11,7 +11,6 @@ import pandas as pd
 from openpyxl import Workbook 
 import numpy as np
 
-# 1. Definición de las columnas de la Librería Panasonic (Estructura de Destino)
 LIBRARY_COLUMNS = [
     "id", "register", "name", "description", "system_category", "category", "view",
     "sampling", "read", "write", "minvalue", "maxvalue", "unit", "offset",
@@ -20,7 +19,6 @@ LIBRARY_COLUMNS = [
     "current_value", "current_error_status", "notes"
 ]
 
-# 2. Mapeo de columnas de la "Segunda Librería" (Tablas HTML) a Panasonic
 COLUMN_MAPPING = {
     'BMS Address': 'register',
     'Variable name': 'name',
@@ -45,7 +43,7 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
     print(f"Leyendo tablas del archivo HTML: {input_path}")
 
     try:
-        # Lee las tablas.
+
         list_of_dataframes: List[pd.DataFrame] = pd.read_html(
             str(input_file),
             header=0,  # Usa la primera fila como encabezado
@@ -62,7 +60,6 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
         print("No se encontraron tablas para exportar.")
         sys.exit(0)
 
-    # Omitir la primera tabla (índice 0), que a menudo es una tabla de encabezado.
     dataframes_to_export = list_of_dataframes[1:]
 
     if not dataframes_to_export: 
@@ -78,7 +75,6 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
             for i, df in enumerate(dataframes_to_export, start=1):
                 sheet_name = f"Tabla_{i}"
                 
-                # --- LÓGICA DE LIMPIEZA Y TRANSFORMACIÓN DE COLUMNAS ---
                 
                 # 1. Limpieza inicial: eliminar posibles filas de encabezado repetidas y columnas sin nombre.
                 df.columns = df.columns.astype(str).str.strip()
@@ -94,7 +90,6 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                         break
                 
                 # 3. Aplicar mapeo de nombres
-                # Mapear la columna de acceso si existe
                 current_mapping = COLUMN_MAPPING.copy()
                 if access_col_name:
                     current_mapping[access_col_name] = 'access_type'
@@ -115,15 +110,27 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                 else:
                     df['read'] = 0
                     df['write'] = 0
+                
+                if 'system_category' in df.columns:
+                  
+                    df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
 
-                # 5. Añadir columnas de metadatos de Panasonic (valores fijos o generados)
+                    df.loc[df['system_category'] == 'ANALOG', 'read'] = 3
+                    df.loc[df['system_category'] == 'ANALOG', 'write'] = 16
+
+                    df.loc[df['system_category'] == 'INTEGER', 'read'] = 3
+                    df.loc[df['system_category'] == 'INTEGER', 'write'] = 16
+
+                    df.loc[df['system_category'] == 'DIGITAL', 'read'] = 1
+                    df.loc[df['system_category'] == 'DIGITAL', 'write'] = 5
+
+
+                # 5. Añadir columnas de metadatos 
                 num_rows = len(df)
                 df["id"] = range(1, num_rows + 1)
-                df["category"] = sheet_name # Usar el nombre de la hoja como categoría
+                df["category"] =  
                 df["view"] = "simple"
                 df["sampling"] = 60
-                
-                # Reaplicar los valores fijos que ya estaban en tu script original
                 df["addition"] = np.nan 
                 df["mask"] = np.nan
                 df["value"] = np.nan
@@ -131,7 +138,6 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                 df["general_icon"] = np.nan
                 df["alarm"] = """ {"severity":"none"} """
                 df["metadata"] = "[]"
-                # Simplificación de l10n para evitar problemas con comillas
                 df["l10n"] = '{"_type":"l10n","default_lang":"en_US","translations":{"en_US":{"name":null,"_type":"languages","description":null}}}'
                 df["tags"] = "[]"
                 df["type"] = "modbus"
@@ -149,7 +155,7 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
 
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-        print(f"Las tablas se han exportado y convertido al formato Panasonic en '{output_file.resolve()}'")
+        print(f"Las tablas se han exportado y convertido al formato comun en '{output_file.resolve()}'")
 
     except Exception as e:
         print(f"Error al escribir el archivo Excel: {e}")
@@ -166,7 +172,6 @@ def main():
         if not path:
              path = default_path
 
-    # Se cambia el nombre de salida por defecto para diferenciarlo
     convert_html_to_excel(path, output_path="parametros_convertidos.xlsx")
 
 
