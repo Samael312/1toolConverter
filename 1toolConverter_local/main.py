@@ -60,8 +60,23 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx")
                     # Opcional: Eliminar la columna 'Unnamed: 0' que a veces se crea
                     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
                 
-                df["Hola"]= "alo"
-                df["Kiconex"]= "iconex"
+                df["addition"]= " "
+                df["mask"]= " "
+                df["value"]= " "
+                df["length"]= "16bit"
+                df["addition"]= " "
+                df["general_icon"]= " "
+                df["alarm"]= """ {"severity":"none"} """
+                df["metadata"]= "[]"
+                df["l10n"]= """ "{"_type":"l10n","default_lang":"en_US","translations":{"de_DE":{"name":null,"_type":"languages","category":null,"description":null},"en_US":{"name":null,"_type":"languages","category":"Alert Code 1","description":"Alert Code1"},"es_ES":{"name":null,"_type":"languages","category":null,"description":null},"fr_FR":{"name":null,"_type":"languages","category":null,"description":null},"it_IT":{"name":null,"_type":"languages","category":null,"description":null},"pt_PT":{"name":null,"_type":"languages","category":null,"description":null}}}" """
+                df["tags"]= "[]"
+                df["type"]= "modbus"
+                df["parameter_write_byte_position"]= " "
+                df["mqtt"]= " " 
+                df["json"]= " "
+                df["current_value"]= " " 
+                df["current_error_status"]= " "  
+                df["notes"]= " "  
 
                 COLUMN_TO_DELETE = "Category"
 
