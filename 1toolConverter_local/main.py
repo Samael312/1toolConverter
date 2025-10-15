@@ -145,16 +145,34 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                     df.loc[df['system_category'] == 'ALARM', 'read'] = 4
                     df.loc[df['system_category'] == 'ALARM', 'write'] = 0
                     df.loc[df['system_category'] == 'ALARM', 'sampling'] = 30
+                
+        
+                if 'minvalue' in df.columns:
+                    df['minvalue'] = df['minvalue'].astype(str).str.strip().replace(['', '---', 'nan'], np.nan)
+                    df['minvalue'] = pd.to_numeric(df['minvalue'], errors='coerce') 
+                
+                if 'maxvalue' in df.columns:
+                    df['maxvalue'] = df['maxvalue'].astype(str).str.strip().replace(['', '---', 'nan'], np.nan)
+                    df['maxvalue'] = pd.to_numeric(df['maxvalue'], errors='coerce')
+                
+                df['length'] = '16bit' 
+
+                if 'minvalue' in df.columns:
+                    negative_min_condition = df['minvalue'].notna() & (df['minvalue'] < 0)
+                    df.loc[negative_min_condition, 'length'] = 's16'
+                
+                elif 'maxvalue' in df.columns:
+                    negative_max_condition = df['maxvalue'].notna() & (df['maxvalue'] < 0)
+                    df.loc[negative_max_condition, 'length'] = 's16'
 
 
                 # 5. Añadir columnas de metadatos 
                 num_rows = len(df)
                 df["id"] = range(1, num_rows + 1)
                 df["view"] = "simple"
-                df["addition"] = np.nan 
-                df["mask"] = np.nan
-                df["value"] = np.nan
-                df["length"] = "16bit"
+                df["addition"] = 0
+                df["mask"] = 0
+                df["value"] = 0
                 df["general_icon"] = np.nan
                 df["alarm"] = """ {"severity":"none"} """
                 df["metadata"] = "[]"
