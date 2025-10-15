@@ -120,7 +120,7 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                 df.loc[df['category'] == 'ALARMS', 'system_category'] = 'ALARM'
             
             if 'name' in df.columns:
-                alarm_name_mask = df['name'].astype(str).str.upper().str.contains('Al', na=False)
+                alarm_name_mask = df['name'].astype(str).str.contains('Al', na=False)
                 df.loc[alarm_name_mask, 'system_category'] = "ALARM"
             
             # --- Lógica de Asignación Específica por 'system_category' (Sobrescritura) ---
@@ -137,7 +137,7 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                 
                 # 1. ANALOG / INTEGER
                 
-                # Caso A: R/W (write > 0) -> Aplicar 3/16. ESTO NO AFECTA a R-Only.
+                # Caso A: R/W (write > 0) -> Aplicar 3/16. .
                 analog_integer_rw_mask = analog_integer_mask & (df['write'] > 0)
                 df.loc[analog_integer_rw_mask, 'read'] = 3
                 df.loc[analog_integer_rw_mask, 'write'] = 16
@@ -192,48 +192,53 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
             
             
             if 'system_category' in df.columns:
-                
-                # 1. Definir las máscaras de estado de acceso y tipo
+    
+            # 1. Definir las máscaras de estado de acceso y tipo
                 is_writeable = df['write'] > 0
                 is_readable = df['read'] > 0
                 is_read_only = (df['read'] > 0) & (df['write'] == 0)
-                
+            
+            # Nota: is_alarm ya tiene el valor 'ALARM' de la detección por 'name' o 'category'
+                is_alarm = df['system_category'] == 'ALARM'
+
+                # Se redefinen is_analog/is_integer/is_digital para excluir ALARM, 
+                # ya que ya se manejará en la primera condición.
                 is_analog = df['system_category'].isin(['ANALOG', 'ANALOG_INPUT', 'ANALOG_OUTPUT'])
                 is_integer = df['system_category'].isin(['INTEGER'])
                 is_digital = df['system_category'].isin(['DIGITAL', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'])
-                is_alarm = df['system_category'] == 'ALARM'
 
-                # 2. Construir la lista de condiciones con la nueva distinción
-                conditions_new_cat = [
-                    # 1. SET_POINT: 
-                    (is_analog) & (is_writeable) & (is_readable), 
-                    
-                    # 2. CONFIG_PARAMETER: 
-                    (is_integer) & (is_writeable) & (is_readable),
-                    
-                    # 3. ANALOG_INPUT: 
-                    (is_analog | is_integer) & (is_read_only),
-                    
-                    # 4. COMMAND: 
-                    (is_digital) & (is_writeable) & (is_readable),
-                    
-                    # 5. DIGITAL_INPUT: 
-                    (is_digital) & (is_read_only),
-                    
-                    # 6. ALARM
-                    (is_alarm) 
-                ]
+            # 2. Construir la lista de condiciones con la nueva distinción
+            conditions_new_cat = [
+                # 0. ALARM (MÁXIMA PRIORIDAD)
+                (is_alarm), 
                 
-                # 3. Construir la lista de opciones (debe coincidir con la cantidad de condiciones)
-                choices_new_cat = [
-                    'SET_POINT',          # 1. Analog R/W
-                    'CONFIG_PARAMETER',   # 2. Integer R/W
-                    'ANALOG_INPUT',       # 3. Analog/Integer R-Only
-                    'COMMAND',     # 4. Digital R/W (Commands)
-                    'DIGITAL_INPUT',      # 5. Digital R-Only
-                    'ALARM',              # 6. Alarm
-                ]
-                df['system_category'] = np.select(conditions_new_cat, choices_new_cat, default='STATUS') 
+                # 1. SET_POINT: Analog y R/W
+                (is_analog) & (is_writeable) & (is_readable), 
+                
+                # 2. CONFIG_PARAMETER: Integer y R/W
+                (is_integer) & (is_writeable) & (is_readable),
+                
+                # 3. ANALOG_INPUT: Analog/Integer R-Only
+                (is_analog | is_integer) & (is_read_only),
+                
+                # 4. COMMAND: Digital y R/W
+                (is_digital) & (is_writeable) & (is_readable),
+                
+                # 5. DIGITAL_INPUT: Digital y Read-Only
+                (is_digital) & (is_read_only),
+            ]
+            
+            # 3. Construir la lista de opciones (debe coincidir con la cantidad de condiciones)
+            choices_new_cat = [
+                'ALARM',              # 0. ALARM
+                'SET_POINT',          # 1. Analog R/W
+                'CONFIG_PARAMETER',   # 2. Integer R/W
+                'ANALOG_INPUT',       # 3. Analog/Integer R-Only
+                'COMMAND',            # 4. Digital R/W (Commands)
+                'DIGITAL_INPUT',      # 5. Digital R-Only
+            ]
+            
+            df['system_category'] = np.select(conditions_new_cat, choices_new_cat, default='STATUS')
 
             processed_dfs.append(df)
             
