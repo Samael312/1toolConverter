@@ -9,6 +9,27 @@ from pathlib import Path
 from typing import List
 import pandas as pd
 from openpyxl import Workbook 
+import numpy as np
+
+LIBRARY_COLUMNS = [
+    "id", "register", "name", "description", "system_category", "category", "view",
+    "sampling", "read", "write", "minvalue", "maxvalue", "unit", "offset",
+    "addition", "mask", "value", "length", "general_icon", "alarm", "metadata",
+    "l10n", "tags", "type", "parameter_write_byte_position", "mqtt", "json",
+    "current_value", "current_error_status", "notes"
+]
+
+COLUMN_MAPPING = {
+    'BMS Address': 'register',
+    'Variable name': 'name',
+    'Description': 'description',
+    'Min': 'minvalue',
+    'Max': 'maxvalue',
+    'Category': 'category',
+    'UOM': 'unit',
+    'Bms_Ofs': 'offset',
+    'Bms_Type': 'system_category',
+}
 
 def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx"):
     """
@@ -39,8 +60,17 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx")
         print("No se encontraron tablas para exportar.")
         sys.exit(0)
 
+    # El script original omite la primera tabla (índice 0), que suele ser el resumen.
+    dataframes_to_export = list_of_dataframes[1:]
+
+    if not dataframes_to_export: 
+        print("Solo se encontró una tabla (la cual fue omitida). No hay nada que exportar.")
+        sys.exit(0)
+
     output_file = Path(output_path)
-    print(f"Escribiendo {len(list_of_dataframes)} tablas en '{output_file.resolve()}'...")
+    print(f"Combinando {len(dataframes_to_export)} tablas en una sola hoja...")
+    
+    processed_dfs = []
 
     # Usar ExcelWriter para escribir múltiples DataFrames en un solo archivo .xlsx
     try:
@@ -63,31 +93,78 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx")
             
             df.rename(columns=current_mapping, inplace=True, errors='ignore')
 
+             # --- Inicializar sampling, read y write a valores por defecto ---
+            df['sampling'] = np.nan
+            df['read'] = 0
+            df['write'] = 0
+
             if 'access_type' in df.columns:
-                df['read'] = df['access_type'].astype(str).str.upper().apply(lambda x: 4 if 'R' in x else 0)
-                df['write'] = df['access_type'].astype(str).str.upper().apply(lambda x: 4 if 'W' in x else 0)
+                access = df['access_type'].astype(str).str.upper().str.strip()
+                
+                # Regla: Si contiene 'R' (o es solo 'R'), read = 4
+                df.loc[access.str.contains('R'), 'read'] = 4
+                
+                # Regla: Si contiene 'W' (o es solo 'W'), write = 4
+                df.loc[access.str.contains('W'), 'write'] = 4
+                
                 df.drop(columns=['access_type'], inplace=True, errors='ignore')
-            else:
-                df['read'] = 0
-                df['write'] = 0
-            
+          
             if 'system_category' in df.columns:
                 df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
 
-                df.loc[df['system_category'].isin(['ANALOG', 'INTEGER']), 'read'] = 3
-                df.loc[df['system_category'].isin(['ANALOG', 'INTEGER']), 'write'] = 16
-                df.loc[df['system_category'].isin(['ANALOG', 'INTEGER']), 'sampling'] = 60
-                
-                df.loc[df['system_category'] == 'DIGITAL', 'read'] = 1
-                df.loc[df['system_category'] == 'DIGITAL', 'write'] = 5
-                df.loc[df['system_category'] == 'DIGITAL', 'sampling'] = 60
 
-                df.loc[df['system_category'] == 'ALARM', 'read'] = 4
-                df.loc[df['system_category'] == 'ALARM', 'write'] = 0
-                df.loc[df['system_category'] == 'ALARM', 'sampling'] = 30
+                # Para registros con read > 0 (lectura permitida)
+                is_readable = df['read'] > 0
+                
+                # Máscaras de Tipo de Dato
+                analog_integer_mask = df['system_category'].isin(['ANALOG', 'INTEGER']) & is_readable
+                digital_mask = df['system_category'].isin(['DIGITAL']) & is_readable
+                alarm_mask = df['system_category'] == 'ALARM'
+
+                # 1. ANALOG / INTEGER
+                
+                # Caso A: R/W (write > 0) -> Aplicar 3/16. .
+                analog_integer_rw_mask = analog_integer_mask & (df['write'] > 0)
+                df.loc[analog_integer_rw_mask, 'read'] = 3
+                df.loc[analog_integer_rw_mask, 'write'] = 16
+                df.loc[analog_integer_mask, 'sampling'] = 60 
+                
+
+                analog_integer_r_only_mask = analog_integer_mask & (df['write'] == 0)
+                df.loc[analog_integer_r_only_mask, 'read'] = 4
+                df.loc[analog_integer_r_only_mask, 'write'] = 0
+                
+                # 2. DIGITAL
+                
+                digital_rw_mask = digital_mask & (df['write'] > 0)
+                df.loc[digital_rw_mask, 'read'] = 1
+                df.loc[digital_rw_mask, 'write'] = 5
+                df.loc[digital_mask, 'sampling'] = 60 
+                
+
+                digital_r_only_mask = digital_mask & (df['write'] == 0)
+                df.loc[digital_r_only_mask, 'read'] = 4
+                df.loc[digital_r_only_mask, 'write'] = 0
+
+                # 3. ALARM (Siempre 4/0)
+                df.loc[alarm_mask, 'read'] = 4
+                df.loc[alarm_mask, 'write'] = 0
+                df.loc[alarm_mask, 'sampling'] = 30
+                
+                is_r_only_after_processing = (df['read'] > 0) & (df['write'] == 0) & ~(analog_integer_mask | digital_mask | alarm_mask)
+                df.loc[is_r_only_after_processing, 'read'] = 4
+                df.loc[is_r_only_after_processing, 'write'] = 0
+            
+            if 'category' in df.columns:
+                df['category'] = df['category'].astype(str).str.upper().str.strip()
+                df.loc[df['category'] == 'ALARMS', 'system_category'] = 'ALARM'
+            
+            if 'name' in df.columns:
+                alarm_name_mask = df['name'].astype(str).str.contains('Al', na=False)
+                df.loc[alarm_name_mask, 'system_category'] = "ALARM"
             
             if 'unit' in df.columns:
-                df['unit'] = df['unit'].astype(str).str.strip().replace(['', '---', 'nan'], np.nan).fillna('0')
+                df['unit'] = df['unit'].astype(str).str.strip().replace(['', '---', 'nan'], np.nan).fillna(0)
 
             if 'offset' in df.columns:
                 df['offset'] = df['offset'].astype(str).str.strip().replace(['', '---', 'nan'], np.nan)
@@ -108,6 +185,10 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx")
                 negative_min_condition = df['minvalue'].notna() & (df['minvalue'] < 0)
                 df.loc[negative_min_condition, 'length'] = 's16'
             
+            elif 'maxvalue' in df.columns:
+                negative_max_condition = df['maxvalue'].notna() & (df['maxvalue'] < 0)
+                df.loc[negative_max_condition, 'length'] = 's16'
+            
             processed_dfs.append(df)
             
         if not processed_dfs:
@@ -122,7 +203,13 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx")
         final_df["view"] = "simple"
         
         if 'sampling' not in final_df.columns:
-            final_df["sampling"] = 60
+            final_df["sampling"] = np.nan
+
+        final_df["sampling"].fillna(60, inplace=True)
+
+       
+        alarm_final_mask = final_df['system_category'] == 'ALARM'
+        final_df.loc[alarm_final_mask, 'sampling'] = 30
         
         final_df["addition"] = 0 
         final_df["mask"] = 0
@@ -140,6 +227,7 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros.xlsx")
         final_df["current_value"] = np.nan
         final_df["current_error_status"] = np.nan
         final_df["notes"] = np.nan
+        final_df['category']=np.nan
     
         
         final_df = final_df.reindex(columns=LIBRARY_COLUMNS, fill_value=np.nan)
