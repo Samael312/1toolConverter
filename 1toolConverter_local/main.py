@@ -218,14 +218,12 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                 # 2. CONFIG_PARAMETER: Integer y R/W
                 (is_integer) & (is_writeable) & (is_readable),
                 
-                # 3. ANALOG_INPUT: Analog/Integer R-Only
-                (is_analog | is_integer) & (is_read_only),
+                # 3. DEFAULT: Analog/Integer/Digital R-Only
+                (is_analog | is_integer | is_analog) & (is_read_only),
                 
                 # 4. COMMAND: Digital y R/W
                 (is_digital) & (is_writeable) & (is_readable),
                 
-                # 5. DIGITAL_INPUT: Digital y Read-Only
-                (is_digital) & (is_read_only),
             ]
             
             # 3. Construir la lista de opciones (debe coincidir con la cantidad de condiciones)
@@ -233,9 +231,8 @@ def convert_html_to_excel(input_path: str, output_path: str = "parametros_conver
                 'ALARM',              # 0. ALARM
                 'SET_POINT',          # 1. Analog R/W
                 'CONFIG_PARAMETER',   # 2. Integer R/W
-                'ANALOG_INPUT',       # 3. Analog/Integer R-Only
+                'DEFAULT',            # 3. Analog/Integer R-Only
                 'COMMAND',            # 4. Digital R/W (Commands)
-                'DIGITAL_INPUT',      # 5. Digital R-Only
             ]
             
             df['system_category'] = np.select(conditions_new_cat, choices_new_cat, default='STATUS')
