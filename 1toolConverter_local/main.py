@@ -254,7 +254,7 @@ def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
         "metadata": "[]",
         "l10n": '{"_type":"l10n","default_lang":"en_US","translations":{"en_US":{"name":null,"_type":"languages","description":null}}}',
         "tags": "[]",
-        "type": "modbus"
+        "type": "modbus",
     }
     
     for col, val in defaults.items():
