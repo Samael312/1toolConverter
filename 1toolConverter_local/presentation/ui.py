@@ -20,12 +20,12 @@ class HTMLConverterUI:
     def __init__(self, process_html_callback):
         self.process_html_callback = process_html_callback
 
-        # Estado de la aplicación
+        # Estado
         self.uploaded_file_content: Optional[bytes] = None
         self.processed_data: Optional[pd.DataFrame] = None
-        self.grouped_data: Optional[pd.DataFrame] = pd.DataFrame()  # nueva tabla para clasificados
+        self.grouped_data: Optional[pd.DataFrame] = pd.DataFrame()
 
-        # Componentes de UI
+        # Componentes UI
         self.process_button = None
         self.show_table_button = None
         self.table = None
@@ -34,7 +34,7 @@ class HTMLConverterUI:
         self.assign_button = None
         self.selected_rows = []
 
-        # Componentes de segunda tabla
+        # Segunda tabla
         self.group_table = None
         self.group_table_card = None
         self.delete_rows_button = None
@@ -43,35 +43,29 @@ class HTMLConverterUI:
         self.selected_group_rows = []
 
     async def handle_upload(self, e):
-        """Maneja el evento de carga de archivo."""
         try:
             logger.info(f"Iniciando carga de archivo: {e.file.name}")
-
             self.uploaded_file_content = await e.file.read()
             logger.info(f"Archivo leído correctamente: {len(self.uploaded_file_content)} bytes")
 
-            if self.process_button is not None:
+            if self.process_button:
                 self.process_button.enable()
-            if self.show_table_button is not None:
+            if self.show_table_button:
                 self.show_table_button.disable()
-            if self.download_button is not None:
+            if self.download_button:
                 self.download_button.disable()
-            if self.table_card is not None:
+            if self.table_card:
                 self.table_card.visible = False
-            if self.group_table_card is not None:
+            if self.group_table_card:
                 self.group_table_card.visible = False
 
-            ui.notify(
-                f"Archivo '{e.file.name}' cargado correctamente ({len(self.uploaded_file_content)} bytes).",
-                type='positive'
-            )
+            ui.notify(f"Archivo '{e.file.name}' cargado correctamente.", type='positive')
 
         except Exception as ex:
             logger.error(f"Error al cargar archivo: {ex}", exc_info=True)
             ui.notify(f"Error al cargar archivo: {ex}", type='negative')
 
     def process_file(self):
-        """Procesa el archivo HTML cargado utilizando la lógica de negocio."""
         if self.uploaded_file_content is None:
             ui.notify("No hay archivo para procesar.", type='negative')
             return
@@ -80,56 +74,67 @@ class HTMLConverterUI:
 
         if df is not None and not df.empty:
             self.processed_data = df
-
-            if self.show_table_button is not None:
+            if self.show_table_button:
                 self.show_table_button.enable()
-            if self.download_button is not None:
+            if self.download_button:
                 self.download_button.enable()
-
             ui.notify(f"{len(df)} parámetros procesados.", type='positive')
         else:
             self.processed_data = None
             ui.notify("No se obtuvieron datos del procesamiento.", type='warning')
 
-            if self.show_table_button is not None:
+            if self.show_table_button:
                 self.show_table_button.disable()
-            if self.download_button is not None:
+            if self.download_button:
                 self.download_button.disable()
 
     def display_table(self):
-        """Muestra la tabla de datos procesados en la interfaz."""
+        """Actualiza la tabla existente con los datos procesados."""
         if self.processed_data is None:
             ui.notify("No hay datos procesados.", type='warning')
             return
 
-        cols = ["id", "register", "name", "description", "system_category",
+        # --- Sincroniza system_category desde grouped_data ---
+        df_display = self.processed_data.copy()
+        if self.grouped_data is not None and not self.grouped_data.empty:
+            category_map = dict(zip(
+                self.grouped_data['id'].astype(str),
+                self.grouped_data['system_category']
+            ))
+            df_display['system_category'] = df_display['id'].astype(str).map(category_map)
+
+        cols = ["id", "estado", "register", "name", "description", "system_category",
                 "read", "write", "offset", "unit", "length"]
 
-        if self.table is not None:
-            self.table.columns = [
-                {
-                    'name': c,
-                    'label': c.replace('_', ' ').title(),
-                    'field': c,
-                    'sortable': True
-                }
-                for c in cols
-            ]
-            self.table.rows = self.processed_data.replace({np.nan: ''}).to_dict('records')
+        rows = df_display.replace({np.nan: ''}).to_dict('records')
 
-        if self.table_card is not None:
+        # Marcar filas agrupadas según system_category
+        for row in rows:
+            row['_isGrouped'] = bool(row.get('system_category'))
+
+        # Actualizar columnas y filas
+        self.table.columns = [
+            {
+                'name': c,
+                'label': c.replace('_', ' ').title(),
+                'field': c,
+                'sortable': True,
+            } for c in cols
+        ]
+        self.table.rows = rows
+        self.table.update()  # <-- Fuerza actualización
+
+        # Mostrar tarjetas
+        if self.table_card:
             self.table_card.visible = True
-
-        if self.group_table_card is not None:
+        if self.group_table_card:
             self.group_table_card.visible = True
 
     def download_excel(self):
-        """Genera, descarga y limpia el archivo Excel temporal."""
         if self.processed_data is None or self.processed_data.empty:
             ui.notify("No hay datos para exportar.", type='warning')
             return
         try:
-            # Elegir qué tabla descargar
             if self.grouped_data is not None and not self.grouped_data.empty:
                 df_to_export = self.grouped_data
                 file_name = 'parametros_clasificados.xlsx'
@@ -151,12 +156,9 @@ class HTMLConverterUI:
 
             async def cleanup_file(path):
                 await asyncio.sleep(60)
-                try:
-                    if os.path.exists(path):
-                        os.remove(path)
-                        logger.debug(f"Archivo temporal eliminado: {path}")
-                except Exception as cleanup_error:
-                    logger.warning(f"No se pudo eliminar el archivo temporal: {cleanup_error}")
+                if os.path.exists(path):
+                    os.remove(path)
+                    logger.debug(f"Archivo temporal eliminado: {path}")
 
             ui.timer(1.0, lambda: asyncio.create_task(cleanup_file(file_path)), once=True)
 
@@ -165,8 +167,14 @@ class HTMLConverterUI:
             ui.notify(f"Error al generar Excel: {ex}", type='negative')
 
     def create_ui(self):
-        """Crea y configura la interfaz de usuario completa."""
         ui.dark_mode().set_value(True)
+        ui.add_head_html("""
+        <style>
+            .q-icon[color="green"] {
+                vertical-align: middle;
+            }
+        </style>
+        """)
 
         with ui.header().classes('items-center justify-between'):
             ui.label('Conversor HTML a Parámetros').classes('text-xl font-bold')
@@ -178,7 +186,6 @@ class HTMLConverterUI:
             self._create_group_table_section()
 
     def _create_upload_section(self):
-        """Sección de carga de archivo."""
         with ui.card().classes('w-full max-w-2xl'):
             ui.label('1. Cargar Archivo HTML').classes('text-lg font-bold')
             ui.separator()
@@ -190,64 +197,71 @@ class HTMLConverterUI:
             upload.on_upload(self.handle_upload)
 
     def _create_process_section(self):
-        """Sección de procesamiento."""
         with ui.card().classes('w-full max-w-2xl'):
             ui.label('2. Procesar el Archivo y Mostrar Tabla').classes('text-lg font-bold')
             with ui.row():
-                self.process_button = ui.button(
-                    'Procesar Archivo',
-                    on_click=self.process_file,
-                    icon='play_for_work'
-                )
+                self.process_button = ui.button('Procesar Archivo', on_click=self.process_file, icon='play_for_work')
                 self.process_button.disable()
-            
-                self.show_table_button = ui.button(
-                    'Mostrar en Tabla',
-                    on_click=self.display_table,
-                    icon='visibility'
-                )
+                self.show_table_button = ui.button('Mostrar en Tabla', on_click=self.display_table, icon='visibility')
                 self.show_table_button.disable()
-                
+
     def _create_table_section(self):
-        """Sección de la tabla principal."""
         with ui.card().classes('w-full max-w-6xl') as table_card:
             ui.label("3. Tabla de Parámetros").classes('text-lg font-bold')
             ui.separator()
 
+            self.table_card = table_card
+            self.table_card.visible = False
+
+            cols = ["id", "estado", "register", "name", "description", "system_category",
+                    "read", "write", "offset", "unit", "length"]
+
             self.table = ui.table(
-                columns=[],
+                columns=[{'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True} for c in cols],
                 rows=[],
-                row_key='name',
+                row_key='id',
                 selection='multiple',
             ).classes('w-full h-96').props('flat bordered dense')
 
             self.table.on('selection', self.handle_selection)
 
+            # --- SLOT con color dinámico según grupo ---
+            self.table.add_slot('body-cell-estado', '''
+                <q-td key="estado" :props="props">
+                    <template v-if="props.row.system_category">
+                        <q-icon
+                            name="check_circle"
+                            :color="{
+                                'ALARM': 'red',
+                                'SET_POINT': 'blue',
+                                'CONFIG_PARAMETER': 'orange',
+                                'COMMAND': 'purple',
+                                'ANALOG_INPUT': 'teal',
+                                'ANALOG_OUTPUT': 'cyan',
+                                'DIGITAL_INPUT': 'amber',
+                                'DIGITAL_OUTPUT': 'green'
+                            }[props.row.system_category] || 'grey'"
+                            size="sm"
+                            class="q-mr-sm"
+                        />
+                        <span>{{ props.row.system_category }}</span>
+                    </template>
+                    <span v-else>—</span>
+                </q-td>
+            ''')
+
             with ui.row().classes('mt-4 items-center gap-4'):
                 self.group_selector = ui.select(
                     options=[
-                        'ALARM',
-                        'SET_POINT',
-                        'CONFIG_PARAMETER',
-                        'COMMAND',
-                        'ANALOG_INPUT',
-                        'ANALOG_OUTPUT',
-                        'DIGITAL_INPUT',
-                        'DIGITAL_OUTPUT',
+                        'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'
                     ],
                     label='Asignar a grupo',
                 ).props('dense')
 
-                self.assign_button = ui.button(
-                    'Asignar grupo',
-                    on_click=self.assign_group_to_selection
-                )
-
-            self.table_card = table_card
-            self.table_card.visible = False
+                self.assign_button = ui.button('Asignar grupo', on_click=self.assign_group_to_selection)
 
     def _create_group_table_section(self):
-        """Sección de la tabla con las variables clasificadas."""
         with ui.card().classes('w-full max-w-6xl') as group_card:
             ui.label("4. Tabla de Variables Clasificadas").classes('text-lg font-bold')
             ui.separator()
@@ -255,37 +269,23 @@ class HTMLConverterUI:
             self.group_table = ui.table(
                 columns=[],
                 rows=[],
-                row_key='name',
+                row_key='id',
                 selection='multiple',
             ).classes('w-full h-96').props('flat bordered dense')
 
             self.group_table.on('selection', self.handle_group_selection)
 
             with ui.row().classes('mt-4 items-center gap-4'):
-                self.delete_rows_button = ui.button(
-                    'Eliminar filas seleccionadas',
-                    on_click=self.delete_selected_group_rows,
-                    icon='delete'
-                ).props('color=negative')
-
-                self.clear_table_button = ui.button(
-                    'Borrar toda la tabla',
-                    on_click=self.clear_group_table,
-                    icon='delete_forever'
-                ).props('color=warning')
-
-                self.download_button = ui.button(
-                    'Descargar Excel',
-                    on_click=self.download_excel,
-                    icon='download'
-                ).props('color=primary')
+                self.delete_rows_button = ui.button('Eliminar filas seleccionadas', on_click=self.delete_selected_group_rows, icon='delete').props('color=negative')
+                self.clear_table_button = ui.button('Borrar toda la tabla', on_click=self.clear_group_table, icon='delete_forever').props('color=warning')
+                self.download_button = ui.button('Descargar Excel', on_click=self.download_excel, icon='download').props('color=primary')
                 self.download_button.disable()
 
             self.group_table_card = group_card
             self.group_table_card.visible = False
 
+    # --- Manejo de selección y agrupamiento ---
     def handle_selection(self, e):
-        
         try:
             args = getattr(e, 'args', e)
             payload = None
@@ -295,53 +295,36 @@ class HTMLConverterUI:
                 payload = args
 
             selected_now = []
-
             if isinstance(payload, dict):
-                if 'value' in payload:
-                    selected_now = payload['value']
-                elif 'rows' in payload:
-                    selected_now = payload['rows']
-                elif 'selected' in payload:
-                    selected_now = payload['selected']
+                selected_now = payload.get('value') or payload.get('rows') or payload.get('selected', [])
             elif isinstance(payload, (list, tuple)):
                 selected_now = list(payload)
             elif payload is not None:
                 selected_now = [payload]
 
-            # Extraer claves de fila (row_key = 'name')
             new_selection = []
             for item in selected_now:
                 if isinstance(item, dict):
-                    if 'name' in item:
-                        new_selection.append(item['name'])
-                    elif 'row_key' in item:
-                        new_selection.append(item['row_key'])
+                    new_selection.append(item.get('id'))
                 elif isinstance(item, str):
                     new_selection.append(item)
 
-            # Reemplazar lista completa con la que el componente tiene actualmente
             if hasattr(self.table, 'selected'):
-                # NiceGUI almacena la selección real aquí
                 current_selection = [
-                    row['name'] if isinstance(row, dict) and 'name' in row else row
+                    row['id'] if isinstance(row, dict) and 'id' in row else row
                     for row in getattr(self.table, 'selected', [])
                 ]
                 self.selected_rows = current_selection
             else:
                 self.selected_rows = new_selection
 
-            # Eliminar duplicados
             self.selected_rows = list(dict.fromkeys(self.selected_rows))
-
             logger.debug(f"Selección actualizada: {self.selected_rows}")
-
         except Exception as ex:
             logger.exception(f"Error procesando selección: {ex}")
             self.selected_rows = []
 
-
     def handle_group_selection(self, e):
-        
         try:
             args = getattr(e, 'args', e)
             payload = None
@@ -351,52 +334,36 @@ class HTMLConverterUI:
                 payload = args
 
             selected_now = []
-
             if isinstance(payload, dict):
-                if 'value' in payload:
-                    selected_now = payload['value']
-                elif 'rows' in payload:
-                    selected_now = payload['rows']
-                elif 'selected' in payload:
-                    selected_now = payload['selected']
+                selected_now = payload.get('value') or payload.get('rows') or payload.get('selected', [])
             elif isinstance(payload, (list, tuple)):
                 selected_now = list(payload)
             elif payload is not None:
                 selected_now = [payload]
 
-            # Extraer claves de fila (row_key = 'name')
             new_selection = []
             for item in selected_now:
                 if isinstance(item, dict):
-                    if 'name' in item:
-                        new_selection.append(item['name'])
-                    elif 'row_key' in item:
-                        new_selection.append(item['row_key'])
+                    new_selection.append(item.get('id'))
                 elif isinstance(item, str):
                     new_selection.append(item)
 
-            # Leer la selección real actual del componente
             if hasattr(self.group_table, 'selected'):
                 current_selection = [
-                    row['name'] if isinstance(row, dict) and 'name' in row else row
+                    row['resgister'] if isinstance(row, dict) and 'id' in row else row
                     for row in getattr(self.group_table, 'selected', [])
                 ]
                 self.selected_group_rows = current_selection
             else:
                 self.selected_group_rows = new_selection
 
-            # Quitar duplicados
             self.selected_group_rows = list(dict.fromkeys(self.selected_group_rows))
-
             logger.debug(f"Selección actualizada en tabla de grupos: {self.selected_group_rows}")
-
         except Exception as ex:
             logger.exception(f"Error procesando selección en tabla de grupos: {ex}")
             self.selected_group_rows = []
 
-
     def assign_group_to_selection(self):
-        """Asigna el grupo seleccionado a las filas marcadas y las agrega a la tabla clasificada."""
         if not self.selected_rows:
             ui.notify('Selecciona una o más filas primero.', type='warning')
             return
@@ -408,33 +375,44 @@ class HTMLConverterUI:
 
         try:
             selected_as_str = [str(x) for x in self.selected_rows]
-            mask = self.processed_data['name'].astype(str).isin(selected_as_str)
+            mask = self.processed_data['id'].astype(str).isin(selected_as_str)
             selected_rows_df = self.processed_data.loc[mask].copy()
             selected_rows_df['system_category'] = group
 
-            # Agregar a la tabla de grupos
             if self.grouped_data is None or self.grouped_data.empty:
                 self.grouped_data = selected_rows_df
             else:
-                self.grouped_data = pd.concat([self.grouped_data, selected_rows_df], ignore_index=True).drop_duplicates(subset=['name'])
-
+                self.grouped_data = pd.concat(
+                    [self.grouped_data, selected_rows_df],
+                    ignore_index=True
+                ).drop_duplicates(subset=['id'])
+    
             self.update_group_table()
+            self.display_table()
+
+
+            self.selected_rows = []
+            if hasattr(self.table, 'selected'):
+                self.table.selected = []
+                self.table.update()
+
             ui.notify(f'Se asignó "{group}" a {len(selected_rows_df)} fila(s).', type='positive')
 
         except Exception as ex:
-            logger.exception(f"Error al asignar grupo: {ex}")
+            import logging
+            logging.exception(f"Error al asignar grupo: {ex}")
             ui.notify(f"Error al asignar grupo: {ex}", type='negative')
 
+
     def delete_selected_group_rows(self):
-        """Elimina las filas seleccionadas de la tabla clasificada."""
         if not self.selected_group_rows:
             ui.notify('Selecciona una o más filas para eliminar.', type='warning')
             return
-
         try:
             before_count = len(self.grouped_data)
-            self.grouped_data = self.grouped_data[~self.grouped_data['name'].astype(str).isin(self.selected_group_rows)]
+            self.grouped_data = self.grouped_data[~self.grouped_data['id'].astype(str).isin(self.selected_group_rows)]
             self.update_group_table()
+            self.display_table()
             after_count = len(self.grouped_data)
             deleted = before_count - after_count
             ui.notify(f'Se eliminaron {deleted} fila(s).', type='positive')
@@ -443,18 +421,17 @@ class HTMLConverterUI:
             ui.notify(f"Error al eliminar filas: {ex}", type='negative')
 
     def clear_group_table(self):
-        """Limpia completamente la tabla clasificada."""
         try:
             count = len(self.grouped_data)
             self.grouped_data = pd.DataFrame()
             self.update_group_table()
+            self.display_table()
             ui.notify(f'Tabla vaciada ({count} filas eliminadas).', type='info')
         except Exception as ex:
             logger.exception(f"Error al limpiar tabla: {ex}")
             ui.notify(f"Error al limpiar tabla: {ex}", type='negative')
 
     def update_group_table(self):
-        """Actualiza la tabla de variables clasificadas."""
         if self.group_table is None:
             return
 
