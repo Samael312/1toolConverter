@@ -147,6 +147,10 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
         df['category'] = df['category'].astype(str).str.upper().str.strip()
         df.loc[df['category'] == 'ALARMS', 'system_category'] = 'ALARM'
 
+    if 'name' in df.columns:
+        alarm_name_mask = df['name'].astype(str).str.contains('Al', na=False)
+        df.loc[alarm_name_mask, 'system_category'] = "ALARM"
+
     if 'system_category' in df.columns:
         df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
         df.loc[df['system_category'] == '', 'system_category'] = np.nan
