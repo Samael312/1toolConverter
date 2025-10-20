@@ -167,12 +167,19 @@ class HTMLConverterUI:
             ui.notify(f"Error al generar Excel: {ex}", type='negative')
 
     def create_ui(self):
-        ui.dark_mode().set_value(True)
+        ui.dark_mode().set_value(False)
         ui.add_head_html("""
         <style>
-            .q-icon[color="green"] {
-                vertical-align: middle;
-            }
+        .q-table td, .q-table th {
+            white-space: normal !important;  /* permite saltos de línea */
+            word-wrap: break-word !important; /* divide palabras largas */
+            line-height: 1.3em;               /* mejora legibilidad */
+            vertical-align: top;              /* alinea texto arriba */
+            padding: 6px 8px !important;      /* más espacio vertical */
+        }
+        .q-table__container {
+            max-height: 600px; /* mantiene scroll si hay muchas filas */
+        }
         </style>
         """)
 
@@ -229,24 +236,26 @@ class HTMLConverterUI:
             self.table.add_slot('body-cell-estado', '''
                 <q-td key="estado" :props="props">
                     <template v-if="props.row.system_category">
-                        <q-icon
-                            name="check_circle"
-                            :color="{
-                                'ALARM': 'red',
-                                'SET_POINT': 'blue',
-                                'CONFIG_PARAMETER': 'orange',
-                                'COMMAND': 'purple',
-                                'ANALOG_INPUT': 'teal',
-                                'ANALOG_OUTPUT': 'cyan',
-                                'DIGITAL_INPUT': 'amber',
-                                'DIGITAL_OUTPUT': 'green'
-                            }[props.row.system_category] || 'grey'"
-                            size="sm"
-                            class="q-mr-sm"
-                        />
-                        <span>{{ props.row.system_category }}</span>
+                        <div style="font-size: 12px; display: flex; align-items: center;">
+                            <q-icon
+                                name="check_circle"
+                                :color="{
+                                    'ALARM': 'red',
+                                    'SET_POINT': 'blue',
+                                    'CONFIG_PARAMETER': 'orange',
+                                    'COMMAND': 'purple',
+                                    'ANALOG_INPUT': 'teal',
+                                    'ANALOG_OUTPUT': 'cyan',
+                                    'DIGITAL_INPUT': 'amber',
+                                    'DIGITAL_OUTPUT': 'green'
+                                }[props.row.system_category] || 'grey'"
+                                size="xs"
+                                class="q-mr-xs"
+                            />
+                            <span>{{ props.row.system_category }}</span>
+                        </div>
                     </template>
-                    <span v-else>—</span>
+                    <span v-else style="font-size: 12px;">—</span>
                 </q-td>
             ''')
 
