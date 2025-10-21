@@ -20,6 +20,10 @@ class HTMLConverterUI:
     def __init__(self, process_html_callback):
         self.process_html_callback = process_html_callback
 
+        self.pagination_main = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
+        self.pagination_group = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
+
+
         # Estado
         self.uploaded_file_content: Optional[bytes] = None
         self.processed_data: Optional[pd.DataFrame] = None
@@ -96,10 +100,30 @@ class HTMLConverterUI:
 
         if df is not None and not df.empty:
             self.processed_data = df
+
+            # --- 🟢 NUEVO: Detectar filas ya clasificadas ---
+            valid_groups = [
+                'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'
+            ]
+
+            auto_grouped = df[df['system_category'].isin(valid_groups)].copy()
+
+            if not auto_grouped.empty:
+                self.grouped_data = auto_grouped.reset_index(drop=True)
+                ui.notify(
+                    f"{len(auto_grouped)} variables clasificadas detectadas automáticamente.",
+                    type='positive',
+                    timeout=2.5
+                )
+
             if self.download_button:
                 self.download_button.enable()
+
             ui.notify(f"{len(df)} parámetros procesados.", type='positive')
-            self.display_table()  # ✅ Mostrar tabla automáticamente
+            self.display_table()  
+            self.update_group_table()  
+
         else:
             self.processed_data = None
             ui.notify("No se obtuvieron datos del procesamiento.", type='warning')
@@ -251,15 +275,49 @@ class HTMLConverterUI:
             cols = ["id", "register", "name", "description", "system_category",
                     "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
 
+            # Selector de columna + campo de búsqueda
+            with ui.row().classes('mt-2 mb-2 items-center gap-2'):
+                ui.label('Buscar en:').classes('text-sm')
+
+                self.search_column_selector = ui.select(
+                    options=['register', 'name', 'description', 'system_category'],
+                    value='name',
+                    label='Columna',
+                ).props('dense outlined').classes('w-48')
+
+                self.search_input = ui.input(
+                    placeholder='Buscador...',
+                    on_change=self.apply_search_filter
+                ).props('dense clearable outlined').classes('flex-1')
+
+            # --- Filtro por system_category ---
+            with ui.row().classes('mt-2 mb-2 items-center gap-2'):
+                ui.label('Filtrar por grupo:').classes('text-sm')
+
+                self.category_filter = ui.select(
+                    options=[
+                        'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT'
+                    ],
+                    multiple=True,
+                    label='Selecciona grupos',
+                    clearable=True,
+                    on_change=self.apply_category_filter
+                ).props('dense outlined use-chips clearable').classes('w-96')
+
+            # Tabla con paginación
             self.table = ui.table(
                 columns=[{'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True} for c in cols],
                 rows=[],
                 row_key='id',
                 selection='multiple',
+                pagination=self.pagination_main,
+                on_pagination_change=self.handle_main_pagination,
             ).classes('w-full h-96').props('flat bordered dense')
 
             self.table.on('selection', self.handle_selection)
 
+            # --- Icono de estado colorido ---
             self.table.add_slot('body-cell-estado', '''
                 <q-td key="estado" :props="props">
                     <template v-if="props.row.system_category">
@@ -286,6 +344,7 @@ class HTMLConverterUI:
                 </q-td>
             ''')
 
+            # --- Controles debajo de la tabla ---
             with ui.row().classes('mt-4 items-center gap-4'):
                 self.group_selector = ui.select(
                     options=[
@@ -300,29 +359,77 @@ class HTMLConverterUI:
                     on_click=self.assign_group_to_selection
                 )
 
+            
+
     def _create_group_table_section(self):
         with ui.card().classes('w-full max-w-6xl') as group_card:
             ui.label("4. Tabla de Variables Clasificadas").classes('text-lg font-bold')
             ui.separator()
 
+            # --- Filtros superiores (idénticos a la primera tabla) ---
+            with ui.row().classes('mt-2 mb-2 items-center gap-2'):
+                ui.label('Buscar en:').classes('text-sm')
+
+                self.group_search_column_selector = ui.select(
+                    options=['register', 'name', 'description', 'system_category'],
+                    value='name',
+                    label='Columna',
+                ).props('dense outlined').classes('w-48')
+
+                self.group_search_input = ui.input(
+                    placeholder='Buscador...',
+                    on_change=self.apply_group_search_filter
+                ).props('dense clearable outlined').classes('flex-1')
+
+            with ui.row().classes('mt-2 mb-2 items-center gap-2'):
+                ui.label('Filtrar por grupo:').classes('text-sm')
+
+                self.group_category_filter = ui.select(
+                    options=[
+                        'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT'
+                    ],
+                    multiple=True,
+                    label='Selecciona grupos',
+                    clearable=True,
+                    on_change=self.apply_group_category_filter
+                ).props('dense outlined use-chips clearable').classes('w-96')
+
+            # --- Tabla con paginación ---
             self.group_table = ui.table(
                 columns=[],
                 rows=[],
                 row_key='id',
                 selection='multiple',
+                pagination=self.pagination_group,
+                on_pagination_change=self.handle_group_pagination,
             ).classes('w-full h-96').props('flat bordered dense')
 
             self.group_table.on('selection', self.handle_group_selection)
 
             with ui.row().classes('mt-4 items-center gap-4'):
-                self.delete_rows_button = ui.button('Eliminar filas seleccionadas', on_click=self.delete_selected_group_rows, icon='delete').props('color=negative')
-                self.clear_table_button = ui.button('Borrar toda la tabla', on_click=self.clear_group_table, icon='delete_forever').props('color=warning')
-                self.download_button = ui.button('Descargar Excel', on_click=self.download_excel, icon='download').props('color=primary')
+                self.delete_rows_button = ui.button(
+                    'Eliminar filas seleccionadas', 
+                    on_click=self.delete_selected_group_rows, 
+                    icon='delete'
+                ).props('color=negative')
+
+                self.clear_table_button = ui.button(
+                    'Borrar toda la tabla', 
+                    on_click=self.clear_group_table, 
+                    icon='delete_forever'
+                ).props('color=warning')
+
+                self.download_button = ui.button(
+                    'Descargar Excel', 
+                    on_click=self.download_excel, 
+                    icon='download'
+                ).props('color=primary')
+
                 self.download_button.disable()
 
             self.group_table_card = group_card
             self.group_table_card.visible = False
-
 
     # --- Manejo de selección y agrupamiento ---
     def handle_selection(self, e):
@@ -527,3 +634,143 @@ class HTMLConverterUI:
         else:
             self.group_table.rows = []
             self.group_table_card.visible = True
+    
+    def handle_main_pagination(self, e):
+        """Manejo de paginación para la tabla principal."""
+        try:
+            # En NiceGUI 2.x, los datos de paginación vienen en e.value
+            if isinstance(e.value, dict):
+                self.pagination_main.update(e.value)
+            logger.debug(f"Paginación principal actualizada: {self.pagination_main}")
+        except Exception as ex:
+            logger.exception(f"Error al manejar paginación principal: {ex}")
+            ui.notify(f"Error al manejar paginación principal: {ex}", type='negative')
+
+
+    def handle_group_pagination(self, e):
+        """Manejo de paginación para la tabla de grupos."""
+        try:
+            if isinstance(e.value, dict):
+                self.pagination_group.update(e.value)
+            logger.debug(f"Paginación de grupos actualizada: {self.pagination_group}")
+        except Exception as ex:
+            logger.exception(f"Error al manejar paginación de grupos: {ex}")
+            ui.notify(f"Error al manejar paginación de grupos: {ex}", type='negative')
+    
+    def apply_search_filter(self, e):
+        """Filtra las filas de la tabla principal según el texto ingresado y la columna seleccionada."""
+        try:
+            if self.processed_data is None or self.processed_data.empty:
+                ui.notify('No hay datos cargados para filtrar.', type='warning')
+                return
+
+            column = self.search_column_selector.value
+            query = (e.value or '').strip().lower()
+
+            if not column or column not in self.processed_data.columns:
+                ui.notify('Selecciona una columna válida para buscar.', type='warning')
+                return
+
+            if not query:
+                # Si no hay búsqueda, mostrar todos los datos
+                filtered = self.processed_data
+            else:
+                # Filtrar solo en la columna seleccionada
+                filtered = self.processed_data[
+                    self.processed_data[column].astype(str).str.lower().str.startswith(query, na=False)
+                ]
+
+            # Actualizar la tabla con los resultados filtrados
+            self.table.rows = filtered.to_dict(orient='records')
+            self.table.update()
+
+            ui.notify(f"{len(filtered)} resultado(s) encontrados en '{column}'.", type='info', timeout=1.5)
+
+        except Exception as ex:
+            logger.exception(f"Error al aplicar filtro de búsqueda: {ex}")
+            ui.notify(f"Error al aplicar filtro de búsqueda: {ex}", type='negative')
+    
+    def apply_category_filter(self, e):
+        """Filtra la tabla principal según las categorías seleccionadas."""
+        try:
+            if self.processed_data is None or self.processed_data.empty:
+                ui.notify('No hay datos cargados para filtrar.', type='warning')
+                return
+
+            selected_categories = e.value or []
+
+            # Si no hay selección, mostrar todos los datos
+            if not selected_categories:
+                filtered = self.processed_data
+            else:
+                filtered = self.processed_data[
+                    self.processed_data['system_category'].isin(selected_categories)
+                ]
+
+            self.table.rows = filtered.replace({np.nan: ''}).to_dict('records')
+            self.table.update()
+
+            ui.notify(f"Mostrando {len(filtered)} filas filtradas por categoría.", type='info', timeout=1.5)
+
+        except Exception as ex:
+            logger.exception(f"Error al aplicar filtro por categoría: {ex}")
+            ui.notify(f"Error al aplicar filtro por categoría: {ex}", type='negative')
+    
+    def apply_group_search_filter(self, e):
+        """Filtra la tabla de grupos según el texto ingresado y la columna seleccionada."""
+        try:
+            if self.grouped_data is None or self.grouped_data.empty:
+                ui.notify('No hay datos clasificados para filtrar.', type='warning')
+                return
+
+            column = self.group_search_column_selector.value
+            query = (e.value or '').strip().lower()
+
+            if not column or column not in self.grouped_data.columns:
+                ui.notify('Selecciona una columna válida para buscar.', type='warning')
+                return
+
+            if not query:
+                filtered = self.grouped_data
+            else:
+                filtered = self.grouped_data[
+                    self.grouped_data[column].astype(str).str.lower().str.startswith(query, na=False)
+                ]
+
+            self.group_table.rows = filtered.replace({np.nan: ''}).to_dict('records')
+            self.group_table.update()
+
+            ui.notify(f"{len(filtered)} resultado(s) encontrados en '{column}'.", type='info', timeout=1.5)
+
+        except Exception as ex:
+            logger.exception(f"Error al aplicar filtro de búsqueda en tabla de grupos: {ex}")
+            ui.notify(f"Error al aplicar filtro de búsqueda: {ex}", type='negative')
+
+    def apply_group_category_filter(self, e):
+        """Filtra la tabla de grupos según las categorías seleccionadas."""
+        try:
+            if self.grouped_data is None or self.grouped_data.empty:
+                ui.notify('No hay datos clasificados para filtrar.', type='warning')
+                return
+
+            selected_categories = e.value or []
+
+            if not selected_categories:
+                filtered = self.grouped_data
+            else:
+                filtered = self.grouped_data[
+                    self.grouped_data['system_category'].isin(selected_categories)
+                ]
+
+            self.group_table.rows = filtered.replace({np.nan: ''}).to_dict('records')
+            self.group_table.update()
+
+            ui.notify(f"Mostrando {len(filtered)} filas filtradas por categoría.", type='info', timeout=1.5)
+
+        except Exception as ex:
+            logger.exception(f"Error al aplicar filtro por categoría en tabla de grupos: {ex}")
+            ui.notify(f"Error al aplicar filtro por categoría: {ex}", type='negative')
+
+
+
+
