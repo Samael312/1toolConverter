@@ -54,17 +54,10 @@ COLUMN_MAPPING = {
 def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
     """
     Procesa un archivo HTML y extrae tablas de parámetros.
-    
-    Args:
-        html_content: Contenido del archivo HTML en bytes
-        
-    Returns:
-        DataFrame con los parámetros procesados o None si hay error
     """
     logger.info("Iniciando análisis HTML")
     html_io = BytesIO(html_content)
-    
-    # Parsear HTML y extraer tablas
+
     try:
         list_of_dataframes: List[pd.DataFrame] = pd.read_html(
             html_io,
@@ -76,40 +69,30 @@ def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
         logger.error(f"Error al parsear HTML: {e}", exc_info=True)
         ui.notify(f"Error al procesar el archivo HTML: {e}", type='negative')
         return None
-    
-    # Validar número de tablas
+
     if not list_of_dataframes or len(list_of_dataframes) < 2:
-        logger.warning(
-            f"Número insuficiente de tablas: "
-            f"{len(list_of_dataframes) if list_of_dataframes else 0}"
-        )
         ui.notify("No se encontraron tablas válidas para exportar.", type='warning')
         return None
-    
-    # Procesar cada tabla
+
     processed_dfs = []
     try:
         for df in list_of_dataframes[1:]:
             processed_df = _process_dataframe(df)
             processed_dfs.append(processed_df)
-        
-        # Combinar todas las tablas procesadas
+
         final_df = pd.concat(processed_dfs, ignore_index=True)
         final_df["id"] = range(1, len(final_df) + 1)
         final_df["view"] = "simple"
-        
-        # Agregar columnas con valores por defecto
+
         final_df = _add_default_columns(final_df)
-        
-        # Reordenar columnas según la estructura de la librería
         result_df = final_df.reindex(columns=LIBRARY_COLUMNS)
-        
+
         logger.info(
             f"Procesamiento HTML completado: "
             f"{len(result_df)} filas, {len(result_df.columns)} columnas"
         )
         return result_df
-        
+
     except Exception as e:
         logger.error(f"Error durante el procesamiento de tablas: {e}", exc_info=True)
         ui.notify(f"Error durante el procesamiento: {e}", type='negative')
@@ -117,135 +100,141 @@ def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
 
 
 def _process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Procesa un DataFrame individual aplicando transformaciones y mapeos.
-    
-    Args:
-        df: DataFrame a procesar
-        
-    Returns:
-        DataFrame procesado
-    """
-    # Limpiar nombres de columnas
+    """Procesa un DataFrame individual aplicando transformaciones y mapeos."""
     df.columns = df.columns.astype(str).str.strip()
-    
-    # Eliminar fila de encabezado duplicada si existe
     if not df.empty and not str(df.iloc[0, 0]).strip().isdigit():
         df = df.iloc[1:].copy()
-    
-    # Eliminar columnas sin nombre
+
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    
-    # Mapear nombres de columnas
     df = _apply_column_mapping(df)
-    
-    # Procesar permisos de lectura/escritura
     df = _process_access_permissions(df)
-    
-    # Procesar columnas específicas
     df = _process_specific_columns(df)
-    
-    # Determinar longitud de datos
     df = _determine_data_length(df)
-    
+    df = _apply_deep_classification(df)  # <<--- CLASIFICACIÓN PROFUNDA AÑADIDA
     return df
 
 
 def _apply_column_mapping(df: pd.DataFrame) -> pd.DataFrame:
-    """Aplica el mapeo de nombres de columnas."""
-    access_col_name = next(
-        (n for n in ['Read/Write', 'Direction'] if n in df.columns),
-        None
-    )
-    
+    access_col_name = next((n for n in ['Read/Write', 'Direction'] if n in df.columns), None)
     current_mapping = COLUMN_MAPPING.copy()
     if access_col_name:
         current_mapping[access_col_name] = 'access_type'
-    
     df.rename(columns=current_mapping, inplace=True, errors='ignore')
     return df
 
 
 def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
-    """Procesa los permisos de lectura/escritura."""
-    if 'access_type' in df.columns:
-        df['read'] = np.where(
-            df['access_type'].astype(str).str.contains('R', case=False),
-            4, 0
-        )
-        df['write'] = np.where(
-            df['access_type'].astype(str).str.contains('W', case=False),
-            4, 0
-        )
+    """Procesa los permisos de lectura/escritura según el tipo y permisos declarados."""
+    df['read'] = 0
+    df['write'] = 0
+
+    if 'access_type' in df.columns and 'system_category' in df.columns:
+        access = df['access_type'].astype(str).str.upper().str.strip()
+        system_type = df['system_category'].astype(str).str.upper().str.strip()
+
+        # Solo "R"
+        only_read_mask = access == 'R'
+        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER', 'DIGITAL']), 'read'] = 4
+        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER', 'DIGITAL']), 'write'] = 0
+
+        # "R/W"
+        read_write_mask = access == 'R/W'
+        df.loc[read_write_mask & (system_type == 'ANALOG'), ['read', 'write']] = [3, 16]
+        df.loc[read_write_mask & (system_type == 'INTEGER'), ['read', 'write']] = [3, 16]
+        df.loc[read_write_mask & (system_type == 'DIGITAL'), ['read', 'write']] = [1, 5]
+
         df.drop(columns=['access_type'], inplace=True, errors='ignore')
-    else:
-        df['read'], df['write'] = 0, 0
-    
+
     return df
 
 
+
 def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Procesa columnas específicas con transformaciones especiales."""
-    # Procesar offset
     if 'offset' in df.columns:
         df['offset'] = pd.to_numeric(
-            df['offset'].astype(str).str.strip()
-            .replace(['', '---', 'nan'], np.nan),
+            df['offset'].astype(str).str.strip().replace(['', '---', 'nan'], np.nan),
             errors='coerce'
         ).fillna(0.0)
-    
-    # Procesar unidad
+
     if 'unit' in df.columns:
-        df['unit'] = df['unit'].astype(str).str.strip() \
-            .replace(['0', '---', None], np.nan).fillna(' ')
-    
-    # Procesar categoría
+        df['unit'] = df['unit'].astype(str).str.strip().replace(['0', '---', None], np.nan).fillna(' ')
+
     if 'category' in df.columns:
         df['category'] = df['category'].astype(str).str.upper().str.strip()
         df.loc[df['category'] == 'ALARMS', 'system_category'] = 'ALARM'
-    
-    # Procesar system_category con condiciones específicas
+
+    if 'name' in df.columns:
+        alarm_name_mask = df['name'].astype(str).str.contains('Al', na=False)
+        df.loc[alarm_name_mask, 'system_category'] = "ALARM"
+
     if 'system_category' in df.columns:
         df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
         
         conditions = {
-            'ANALOG': {'read': 3, 'write': 16, 'sampling': 60},
-            'INTEGER': {'read': 3, 'write': 16, 'sampling': 60},
-            'DIGITAL': {'read': 1, 'write': 5, 'sampling': 60},
-            'ALARM': {'read': 4, 'write': 0, 'sampling': 30},
+            'ANALOG': {'sampling': 60},
+            'INTEGER': {'sampling': 60},
+            'DIGITAL': { 'sampling': 60},
+            'ALARM': { 'sampling': 30},
         }
         
         for key, vals in conditions.items():
             for col, val in vals.items():
                 df.loc[df['system_category'] == key, col] = val
-    
-    # Procesar valores mín/máx
+
     for col in ['minvalue', 'maxvalue']:
         if col in df.columns:
             df[col] = pd.to_numeric(
-                df[col].astype(str).str.strip()
-                .replace(['', '---', 'nan'], np.nan),
+                df[col].astype(str).str.strip().replace(['', '---', 'nan'], np.nan),
                 errors='coerce'
             )
-    
+
     return df
 
 
 def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
-    """Determina la longitud de datos basándose en los valores mín/máx."""
     df['length'] = '16bit'
-    
     if 'minvalue' in df.columns and 'maxvalue' in df.columns:
-        df.loc[
-            (df['minvalue'] < 0) | (df['maxvalue'] < 0),
-            'length'
-        ] = 's16'
-    
+        df.loc[(df['minvalue'] < 0) | (df['maxvalue'] < 0), 'length'] = 's16'
+    return df
+
+
+def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
+    """Clasificación profunda de categorías de sistema."""
+    if 'system_category' not in df.columns:
+        df['system_category'] = 'STATUS'
+
+    df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
+
+    is_writeable = df['write'] > 0
+    is_readable = df['read'] > 0
+    is_read_only = (df['read'] > 0) & (df['write'] == 0)
+    is_alarm = df['system_category'] == 'ALARM'
+
+    is_analog = df['system_category'].isin(['ANALOG', 'ANALOG_INPUT', 'ANALOG_OUTPUT'])
+    is_integer = df['system_category'].isin(['INTEGER'])
+    is_digital = df['system_category'].isin(['DIGITAL', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'])
+
+    conditions_new_cat = [
+        (is_alarm),
+        (is_analog) & (is_writeable) & (is_readable),
+        (is_integer) & (is_writeable) & (is_readable),
+        (is_analog | is_integer | is_digital) & (is_read_only),
+        (is_digital) & (is_writeable) & (is_readable),
+    ]
+
+    choices_new_cat = [
+        'ALARM',
+        'SET_POINT',
+        'CONFIG_PARAMETER',
+        'DEFAULT',
+        'COMMAND',
+    ]
+
+    df['system_category'] = np.select(conditions_new_cat, choices_new_cat, default='STATUS')
     return df
 
 
 def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Agrega columnas con valores por defecto."""
     defaults = {
         "addition": 0,
         "mask": 0,
@@ -256,11 +245,10 @@ def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
         "tags": "[]",
         "type": "modbus",
     }
-    
+
     for col, val in defaults.items():
         if col not in df.columns:
             df[col] = val
-    
     return df
 
 
@@ -269,24 +257,13 @@ def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
 # =====================================================
 
 def main():
-    """
-    Función principal que inicializa la aplicación.
-    Separa la lógica de negocio de la presentación.
-    """
     logger.info("Inicializando aplicación")
-    
-    # Crear el controlador de UI pasándole la lógica de negocio
     ui_controller = HTMLConverterUI(process_html_callback=process_html)
-    
-    # Crear la interfaz de usuario
     ui_controller.create_ui()
-    
     logger.info("Aplicación iniciada correctamente")
 
 
-# Inicializar la aplicación
 main()
-
 
 if __name__ in {'__main__', '__mp_main__'}:
     ui.run(title="Conversor HTML a Excel", reload=True)

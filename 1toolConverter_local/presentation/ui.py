@@ -104,7 +104,7 @@ class HTMLConverterUI:
             df_display['system_category'] = df_display['id'].astype(str).map(category_map)
 
         cols = ["id", "estado", "register", "name", "description", "system_category",
-                "read", "write", "offset", "unit", "length"]
+                "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
 
@@ -221,7 +221,7 @@ class HTMLConverterUI:
             self.table_card.visible = False
 
             cols = ["id", "estado", "register", "name", "description", "system_category",
-                    "read", "write", "offset", "unit", "length"]
+                "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
 
             self.table = ui.table(
                 columns=[{'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True} for c in cols],
@@ -445,8 +445,8 @@ class HTMLConverterUI:
             return
 
         if self.grouped_data is not None and not self.grouped_data.empty:
-            cols = ["id", "register", "name", "description", "system_category",
-                    "read", "write", "offset", "unit", "length"]
+            cols = ["id", "estado", "register", "name", "description", "system_category",
+                "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
 
             self.group_table.columns = [
                 {'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True}
