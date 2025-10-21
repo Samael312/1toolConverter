@@ -220,7 +220,7 @@ class HTMLConverterUI:
             self.table_card = table_card
             self.table_card.visible = False
 
-            cols = ["id", "estado", "register", "name", "description", "system_category",
+            cols = ["id", "register", "name", "description", "system_category",
                 "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
 
             self.table = ui.table(
@@ -359,7 +359,7 @@ class HTMLConverterUI:
 
             if hasattr(self.group_table, 'selected'):
                 current_selection = [
-                    row['resgister'] if isinstance(row, dict) and 'id' in row else row
+                    row['id'] if isinstance(row, dict) and 'id' in row else row
                     for row in getattr(self.group_table, 'selected', [])
                 ]
                 self.selected_group_rows = current_selection
@@ -417,17 +417,35 @@ class HTMLConverterUI:
         if not self.selected_group_rows:
             ui.notify('Selecciona una o más filas para eliminar.', type='warning')
             return
+
         try:
             before_count = len(self.grouped_data)
-            self.grouped_data = self.grouped_data[~self.grouped_data['id'].astype(str).isin(self.selected_group_rows)]
+            
+            # Convertir la selección a strings (por si acaso)
+            ids_to_delete = [str(i) for i in self.selected_group_rows]
+
+            # Filtrar filas que NO están seleccionadas
+            self.grouped_data = self.grouped_data[~self.grouped_data['id'].astype(str).isin(ids_to_delete)]
+            
+            # Reiniciar índice
+            self.grouped_data.reset_index(drop=True, inplace=True)
+            
+            # Limpiar selección antes de actualizar la tabla
+            self.selected_group_rows.clear()
+            
+            # Actualizar tabla
             self.update_group_table()
             self.display_table()
+            
             after_count = len(self.grouped_data)
             deleted = before_count - after_count
+            
             ui.notify(f'Se eliminaron {deleted} fila(s).', type='positive')
+        
         except Exception as ex:
             logger.exception(f"Error al eliminar filas: {ex}")
             ui.notify(f"Error al eliminar filas: {ex}", type='negative')
+
 
     def clear_group_table(self):
         try:
@@ -445,7 +463,7 @@ class HTMLConverterUI:
             return
 
         if self.grouped_data is not None and not self.grouped_data.empty:
-            cols = ["id", "estado", "register", "name", "description", "system_category",
+            cols = ["id", "register", "name", "description", "system_category",
                 "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
 
             self.group_table.columns = [
