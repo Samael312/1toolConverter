@@ -58,7 +58,6 @@ def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
     logger.info("Iniciando análisis HTML")
     html_io = BytesIO(html_content)
 
-
     try:
         list_of_dataframes: List[pd.DataFrame] = pd.read_html(
             html_io,
@@ -94,7 +93,6 @@ def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
         )
         return result_df
 
-
     except Exception as e:
         logger.error(f"Error durante el procesamiento de tablas: {e}", exc_info=True)
         ui.notify(f"Error durante el procesamiento: {e}", type='negative')
@@ -112,7 +110,8 @@ def _process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = _process_access_permissions(df)
     df = _process_specific_columns(df)
     df = _determine_data_length(df)
-    df = _apply_deep_classification(df)  # <<--- CLASIFICACIÓN PROFUNDA AÑADIDA
+    df = _apply_deep_classification(df)
+    df = _apply_sampling_rules(df)  # ✅ Establecer sampling después de la clasificación
     return df
 
 
@@ -136,19 +135,19 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
 
         # Solo "R"
         only_read_mask = access == 'R'
-        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER', 'DIGITAL']), 'read'] = 4
+        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER']), 'read'] = 3
+        df.loc[only_read_mask & system_type.isin(['DIGITAL']), 'read'] = 1
         df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER', 'DIGITAL']), 'write'] = 0
 
         # "R/W"
         read_write_mask = access == 'R/W'
-        df.loc[read_write_mask & (system_type == 'ANALOG'), ['read', 'write']] = [3, 16]
-        df.loc[read_write_mask & (system_type == 'INTEGER'), ['read', 'write']] = [3, 16]
+        df.loc[read_write_mask & (system_type == 'ANALOG'), ['read', 'write']] = [3, 6]
+        df.loc[read_write_mask & (system_type == 'INTEGER'), ['read', 'write']] = [3, 6]
         df.loc[read_write_mask & (system_type == 'DIGITAL'), ['read', 'write']] = [1, 5]
 
         df.drop(columns=['access_type'], inplace=True, errors='ignore')
 
     return df
-
 
 
 def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -171,17 +170,6 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     if 'system_category' in df.columns:
         df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
-        
-        conditions = {
-            'ANALOG': {'sampling': 60},
-            'INTEGER': {'sampling': 60},
-            'DIGITAL': { 'sampling': 60},
-            'ALARM': { 'sampling': 30},
-        }
-        
-        for key, vals in conditions.items():
-            for col, val in vals.items():
-                df.loc[df['system_category'] == key, col] = val
 
     for col in ['minvalue', 'maxvalue']:
         if col in df.columns:
@@ -236,6 +224,25 @@ def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
+    """Asigna valores de 'sampling' según la categoría final del sistema."""
+    sampling_rules = {
+        'ALARM': 30,
+        'SET_POINT': 300,
+        'CONFIG_PARAMETER': 0,
+        'DEFAULT': 60,
+        'COMMAND': 0,
+    }
+
+    if 'sampling' not in df.columns:
+        df['sampling'] = 60  # valor por defecto
+
+    for category, value in sampling_rules.items():
+        df.loc[df['system_category'] == category, 'sampling'] = value
+
+    return df
+
+
 def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
     defaults = {
         "addition": 0,
@@ -247,7 +254,6 @@ def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
         "tags": "[]",
         "type": "modbus",
     }
-
 
     for col, val in defaults.items():
         if col not in df.columns:

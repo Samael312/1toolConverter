@@ -27,7 +27,6 @@ class HTMLConverterUI:
 
         # Componentes UI
         self.process_button = None
-        self.show_table_button = None
         self.table = None
         self.table_card = None
         self.group_selector = None
@@ -50,8 +49,6 @@ class HTMLConverterUI:
 
             if self.process_button:
                 self.process_button.enable()
-            if self.show_table_button:
-                self.show_table_button.disable()
             if self.download_button:
                 self.download_button.disable()
             if self.table_card:
@@ -70,23 +67,46 @@ class HTMLConverterUI:
             ui.notify("No hay archivo para procesar.", type='negative')
             return
 
+        # --- 🔄 Reiniciar tablas y datos previos ---
+        self.processed_data = None
+        self.grouped_data = pd.DataFrame()
+        self.selected_rows = []
+        self.selected_group_rows = []
+        
+        # Limpiar contenido visual de tablas
+        if self.table:
+            self.table.rows = []
+            self.table.update()
+        if self.group_table:
+            self.group_table.rows = []
+            self.group_table.update()
+
+        # Ocultar las tarjetas mientras no haya datos
+        if self.table_card:
+            self.table_card.visible = False
+        if self.group_table_card:
+            self.group_table_card.visible = False
+
+        # Deshabilitar botones dependientes
+        if self.download_button:
+            self.download_button.disable()
+
+        # --- Procesar archivo normalmente ---
         df = self.process_html_callback(self.uploaded_file_content)
 
         if df is not None and not df.empty:
             self.processed_data = df
-            if self.show_table_button:
-                self.show_table_button.enable()
             if self.download_button:
                 self.download_button.enable()
             ui.notify(f"{len(df)} parámetros procesados.", type='positive')
+            self.display_table()  # ✅ Mostrar tabla automáticamente
         else:
             self.processed_data = None
             ui.notify("No se obtuvieron datos del procesamiento.", type='warning')
 
-            if self.show_table_button:
-                self.show_table_button.disable()
             if self.download_button:
                 self.download_button.disable()
+
 
     def display_table(self):
         """Actualiza la tabla existente con los datos procesados."""
@@ -96,23 +116,28 @@ class HTMLConverterUI:
 
         # --- Sincroniza system_category desde grouped_data ---
         df_display = self.processed_data.copy()
+
         if self.grouped_data is not None and not self.grouped_data.empty:
             category_map = dict(zip(
                 self.grouped_data['id'].astype(str),
                 self.grouped_data['system_category']
             ))
-            df_display['system_category'] = df_display['id'].astype(str).map(category_map)
+
+            # Solo actualizar las filas que aparecen en grouped_data
+            df_display.loc[
+                df_display['id'].astype(str).isin(category_map.keys()),
+                'system_category'
+            ] = df_display['id'].astype(str).map(category_map)
+
 
         cols = ["id", "estado", "register", "name", "description", "system_category",
                 "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
 
-        # Marcar filas agrupadas según system_category
         for row in rows:
             row['_isGrouped'] = bool(row.get('system_category'))
 
-        # Actualizar columnas y filas
         self.table.columns = [
             {
                 'name': c,
@@ -122,7 +147,7 @@ class HTMLConverterUI:
             } for c in cols
         ]
         self.table.rows = rows
-        self.table.update()  # <-- Fuerza actualización
+        self.table.update()
 
         # Mostrar tarjetas
         if self.table_card:
@@ -171,15 +196,16 @@ class HTMLConverterUI:
         ui.add_head_html("""
         <style>
         .q-table td, .q-table th {
-            white-space: normal !important;  /* permite saltos de línea */
-            word-wrap: break-word !important; /* divide palabras largas */
-            line-height: 1.3em;               /* mejora legibilidad */
-            vertical-align: top;              /* alinea texto arriba */
-            padding: 6px 8px !important;      /* más espacio vertical */
+            white-space: normal !important;
+            word-wrap: break-word !important;
+            line-height: 1.3em;
+            vertical-align: top;
+            padding: 6px 8px !important;
         }
         .q-table__container {
-            max-height: 600px; /* mantiene scroll si hay muchas filas */
+            max-height: 600px;
         }
+                          
         </style>
         """)
 
@@ -207,10 +233,12 @@ class HTMLConverterUI:
         with ui.card().classes('w-full max-w-2xl'):
             ui.label('2. Procesar el Archivo y Mostrar Tabla').classes('text-lg font-bold')
             with ui.row():
-                self.process_button = ui.button('Procesar Archivo', on_click=self.process_file, icon='play_for_work')
-                self.process_button.disable()
-                self.show_table_button = ui.button('Mostrar en Tabla', on_click=self.display_table, icon='visibility')
-                self.show_table_button.disable()
+                self.process_button = ui.button(
+                    'Procesar Archivo',
+                    on_click=self.process_file,
+                    icon='play_for_work'
+                )
+                self.process_button.disable()  # se habilita al subir archivo
 
     def _create_table_section(self):
         with ui.card().classes('w-full max-w-6xl') as table_card:
@@ -221,7 +249,7 @@ class HTMLConverterUI:
             self.table_card.visible = False
 
             cols = ["id", "register", "name", "description", "system_category",
-                "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
+                    "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
 
             self.table = ui.table(
                 columns=[{'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True} for c in cols],
@@ -232,7 +260,6 @@ class HTMLConverterUI:
 
             self.table.on('selection', self.handle_selection)
 
-            # --- SLOT con color dinámico según grupo ---
             self.table.add_slot('body-cell-estado', '''
                 <q-td key="estado" :props="props">
                     <template v-if="props.row.system_category">
@@ -268,7 +295,10 @@ class HTMLConverterUI:
                     label='Asignar a grupo',
                 ).props('dense')
 
-                self.assign_button = ui.button('Asignar grupo', on_click=self.assign_group_to_selection)
+                self.assign_button = ui.button(
+                    'Asignar grupo',
+                    on_click=self.assign_group_to_selection
+                )
 
     def _create_group_table_section(self):
         with ui.card().classes('w-full max-w-6xl') as group_card:
@@ -292,6 +322,7 @@ class HTMLConverterUI:
 
             self.group_table_card = group_card
             self.group_table_card.visible = False
+
 
     # --- Manejo de selección y agrupamiento ---
     def handle_selection(self, e):
@@ -383,23 +414,45 @@ class HTMLConverterUI:
             return
 
         try:
+            # Convertir ids seleccionados a string
             selected_as_str = [str(x) for x in self.selected_rows]
-            mask = self.processed_data['id'].astype(str).isin(selected_as_str)
-            selected_rows_df = self.processed_data.loc[mask].copy()
+
+            # Filtrar filas seleccionadas del DataFrame original
+            selected_rows_df = self.processed_data.loc[
+                self.processed_data['id'].astype(str).isin(selected_as_str)
+            ].copy()
+
+            # Asignar nuevo grupo
             selected_rows_df['system_category'] = group
 
+            # Si la tabla de grupos está vacía, se inicializa
             if self.grouped_data is None or self.grouped_data.empty:
                 self.grouped_data = selected_rows_df
             else:
+                # Asegurar que las columnas coincidan
+                all_cols = list(self.grouped_data.columns)
+                selected_rows_df = selected_rows_df.reindex(columns=all_cols, fill_value=np.nan)
+
+                # Convertimos los IDs a string para asegurar coincidencia
+                self.grouped_data['id'] = self.grouped_data['id'].astype(str)
+                selected_rows_df['id'] = selected_rows_df['id'].astype(str)
+
+                # Eliminar filas existentes con esos IDs (para sobrescribir)
+                self.grouped_data = self.grouped_data[
+                    ~self.grouped_data['id'].isin(selected_rows_df['id'])
+                ]
+
+                # Agregar filas nuevas o actualizadas
                 self.grouped_data = pd.concat(
                     [self.grouped_data, selected_rows_df],
                     ignore_index=True
-                ).drop_duplicates(subset=['id'])
-    
+                )
+
+            # Actualizamos ambas tablas
             self.update_group_table()
             self.display_table()
 
-
+            # Limpiamos la selección
             self.selected_rows = []
             if hasattr(self.table, 'selected'):
                 self.table.selected = []
@@ -408,8 +461,7 @@ class HTMLConverterUI:
             ui.notify(f'Se asignó "{group}" a {len(selected_rows_df)} fila(s).', type='positive')
 
         except Exception as ex:
-            import logging
-            logging.exception(f"Error al asignar grupo: {ex}")
+            logger.exception(f"Error al asignar grupo: {ex}")
             ui.notify(f"Error al asignar grupo: {ex}", type='negative')
 
 
