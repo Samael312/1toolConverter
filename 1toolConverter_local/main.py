@@ -167,20 +167,27 @@ def _apply_column_mapping(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
-    """Procesa los permisos de lectura/escritura."""
-    if 'access_type' in df.columns:
-        df['read'] = np.where(
-            df['access_type'].astype(str).str.contains('R', case=False),
-            4, 0
-        )
-        df['write'] = np.where(
-            df['access_type'].astype(str).str.contains('W', case=False),
-            4, 0
-        )
+    """Procesa los permisos de lectura/escritura según el tipo y permisos declarados."""
+    df['read'] = 0
+    df['write'] = 0
+
+    if 'access_type' in df.columns and 'system_category' in df.columns:
+        access = df['access_type'].astype(str).str.upper().str.strip()
+        system_type = df['system_category'].astype(str).str.upper().str.strip()
+
+        # Solo "R"
+        only_read_mask = access == 'R'
+        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER', 'DIGITAL']), 'read'] = 4
+        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER', 'DIGITAL']), 'write'] = 0
+
+        # "R/W"
+        read_write_mask = access == 'R/W'
+        df.loc[read_write_mask & (system_type == 'ANALOG'), ['read', 'write']] = [3, 16]
+        df.loc[read_write_mask & (system_type == 'INTEGER'), ['read', 'write']] = [3, 16]
+        df.loc[read_write_mask & (system_type == 'DIGITAL'), ['read', 'write']] = [1, 5]
+
         df.drop(columns=['access_type'], inplace=True, errors='ignore')
-    else:
-        df['read'], df['write'] = 0, 0
-    
+
     return df
 
 
@@ -209,10 +216,10 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
         df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
         
         conditions = {
-            'ANALOG': {'read': 3, 'write': 16, 'sampling': 60},
-            'INTEGER': {'read': 3, 'write': 16, 'sampling': 60},
-            'DIGITAL': {'read': 1, 'write': 5, 'sampling': 60},
-            'ALARM': {'read': 4, 'write': 0, 'sampling': 30},
+            'ANALOG': {'sampling': 60},
+            'INTEGER': {'sampling': 60},
+            'DIGITAL': { 'sampling': 60},
+            'ALARM': { 'sampling': 30},
         }
         
         for key, vals in conditions.items():

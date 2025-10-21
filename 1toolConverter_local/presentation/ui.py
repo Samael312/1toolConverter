@@ -104,7 +104,7 @@ class HTMLConverterUI:
             df_display['system_category'] = df_display['id'].astype(str).map(category_map)
 
         cols = ["id", "estado", "register", "name", "description", "system_category",
-                "read", "write", "offset", "unit", "length"]
+                "read", "write", "sampling", "offset", "unit", "length" ]
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
 
