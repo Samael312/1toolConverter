@@ -135,7 +135,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
 
         # Solo "R"
         only_read_mask = access == 'R'
-        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER']), 'read'] = 3
+        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER']), 'read'] = 4
         df.loc[only_read_mask & system_type.isin(['DIGITAL']), 'read'] = 1
         df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER', 'DIGITAL']), 'write'] = 0
 
