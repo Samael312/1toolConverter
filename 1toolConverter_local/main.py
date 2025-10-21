@@ -58,6 +58,7 @@ def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
     logger.info("Iniciando análisis HTML")
     html_io = BytesIO(html_content)
 
+
     try:
         list_of_dataframes: List[pd.DataFrame] = pd.read_html(
             html_io,
@@ -92,6 +93,7 @@ def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
             f"{len(result_df)} filas, {len(result_df.columns)} columnas"
         )
         return result_df
+
 
     except Exception as e:
         logger.error(f"Error durante el procesamiento de tablas: {e}", exc_info=True)
@@ -245,6 +247,7 @@ def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
         "tags": "[]",
         "type": "modbus",
     }
+
 
     for col, val in defaults.items():
         if col not in df.columns:
