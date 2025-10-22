@@ -283,6 +283,7 @@ class HTMLConverterUI:
                     options=['register', 'name', 'description', 'system_category'],
                     value='name',
                     label='Columna',
+                    on_change= self.reset_search_input
                 ).props('dense outlined').classes('w-48')
 
                 self.search_input = ui.input(
@@ -396,6 +397,7 @@ class HTMLConverterUI:
                     options=['register', 'name', 'description', 'system_category'],
                     value='name',
                     label='Columna',
+                    on_change= self.reset_group_search_input
                 ).props('dense outlined').classes('w-48')
 
                 self.group_search_input = ui.input(
@@ -573,7 +575,7 @@ class HTMLConverterUI:
 
                 # Agregar filas nuevas o actualizadas
                 self.grouped_data = pd.concat(
-                    [self.grouped_data, selected_rows_df],
+                    [selected_rows_df, self.grouped_data],
                     ignore_index=True
                 )
 
@@ -847,7 +849,7 @@ class HTMLConverterUI:
                 self.grouped_data = self.grouped_data[~self.grouped_data['id'].isin(selected_row_df['id'])]
 
                 # Concatenar
-                self.grouped_data = pd.concat([self.grouped_data, selected_row_df], ignore_index=True)
+                self.grouped_data = pd.concat([selected_row_df, self.grouped_data], ignore_index=True)
 
             # Actualizamos la interfaz
             self.update_group_table()
@@ -859,3 +861,20 @@ class HTMLConverterUI:
             logger.exception(f"Error manejando cambio de estado: {ex}")
             ui.notify(f"Error manejando cambio de estado: {ex}", type='negative')
 
+    def reset_search_input(self, e):
+        """Limpia el cuadro de búsqueda y restaura la tabla principal al cambiar de columna."""
+        if self.search_input:
+            self.search_input.value = ''
+        if self.processed_data is not None and not self.processed_data.empty:
+            self.table.rows = self.processed_data.to_dict('records')
+            self.table.update()
+        ui.notify("Filtro de búsqueda reiniciado.", type='info', timeout=1.5)
+
+    def reset_group_search_input(self, e):
+        """Limpia el cuadro de búsqueda y restaura la tabla de grupos al cambiar de columna."""
+        if self.group_search_input:
+            self.group_search_input.value = ''
+        if self.grouped_data is not None and not self.grouped_data.empty:
+            self.group_table.rows = self.grouped_data.to_dict('records')
+            self.group_table.update()
+        ui.notify("Filtro de búsqueda reiniciado.", type='info', timeout=1.5)
