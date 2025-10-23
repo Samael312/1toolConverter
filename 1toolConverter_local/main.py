@@ -26,7 +26,8 @@ COLUMN_MAPPING = {
     'Comment': 'description',
     'Wiring': 'category',
     'String Size': 'length',
-    'Attribute': 'attribute'  # Columna para determinar read/write
+    'Attribute': 'attribute', # Columna para determinar read/write
+    'Groups': 'groups'  # Columna para determinar system_category
 }
 
 
@@ -99,15 +100,33 @@ def convert_excel_to_excel(input_path: str, output_path: str = "parametros_proce
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
 
+        if 'register' in df.columns:
+            def register_to_decimal(val):
+                val_str = str(val).strip()
+                # Detecta si contiene letras hexadecimales
+                if re.fullmatch(r'[0-9a-fA-F]+', val_str):
+                    return int(val_str, 16)
+                # Detecta si es número normal
+                try:
+                    return int(val_str)
+                except:
+                    return np.nan
+            df['register'] = df['register'].apply(register_to_decimal)
+
         # --- system_category basado en category ---
         df['system_category'] = ' '
-        if 'category' in df.columns:
-            df.loc[df['category'].str.upper().str.contains('%ID'), 'system_category'] = 'DIGITAL_INPUT'
-            df.loc[df['category'].str.upper().str.contains('%QD'), 'system_category'] = 'DIGITAL_OUTPUT'
-            df.loc[df['category'].str.upper().str.contains('%IX'), 'system_category'] = 'BITDIGITAL_INPUT'
-            df.loc[df['category'].str.upper().str.contains('%QX'), 'system_category'] = 'BITDIGITAL_OUTPUT'
-            df.loc[df['category'].str.upper().str.contains('nan'), 'system_category'] = " "
-            df.loc[df['category'].str.upper().str.contains(' '), 'system_category'] = " "
+        if 'groups' in df.columns:
+            df.loc[df['groups'].str.upper().str.contains('PARAMETROS_CONFIGURACION', na=False), 'system_category'] = 'CONFIG_PARAMETERS'
+            df.loc[df['groups'].str.upper().str.contains('ALARMAS', "WARNINGS", na=False), 'system_category'] = 'ALARM'
+            df.loc[df['groups'].str.upper().str.contains('COMANDOS', na=False), 'system_category'] = 'COMMANDS'
+            df.loc[df['groups'].str.upper().str.contains('ESTADOS', na=False), 'system_category'] = 'STATUS'
+            df.loc[df['groups'].str.upper().str.contains('ENTRADAS_SALIDAS', na=False), 'system_category'] = 'INPUT_OUTPUT'
+            df.loc[df['groups'].str.upper().str.contains('INSTANCIA', 'REGISTRO', na=False), 'system_category'] = 'DEFAULT'
+
+
+        valid_categories = ['CONFIG_PARAMETERS', 'ALARM', 'COMMANDS', 'STATUS', 'INPUT_OUTPUT', 'DEFAULT']
+        df = df[df['system_category'].isin(valid_categories)].reset_index(drop=True)
+
 
         # --- Reglas de lectura/escritura basadas en attribute ---
         df['read'] = 0
@@ -152,10 +171,10 @@ def convert_excel_to_excel(input_path: str, output_path: str = "parametros_proce
     final_df["current_value"] = np.nan
     final_df["current_error_status"] = np.nan
     final_df["notes"] = np.nan
+    final_df['category']= np.nan
 
     final_df = final_df.reindex(columns=LIBRARY_COLUMNS, fill_value=np.nan)
 
-    final_df['category'] = final_df['category'].replace(np.nan, "")
 
     # --- Exportar ---
     try:
