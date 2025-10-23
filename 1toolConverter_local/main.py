@@ -1,15 +1,30 @@
-# Author Kiconex - Samuel Ali 
-# Description  Conversion of data table format of variables from Excel to processed Excel using pandas.
-# Version  2.3
-# Name  1tools - Convert Data Table Format (Excel Version)
-# Type  Application
-
-import sys
-from pathlib import Path
-from typing import List
+"""
+Aplicación Conversor HTML a Excel
+Punto de entrada principal y lógica de negocio.
+"""
+from io import BytesIO
+from typing import List, Optional
 import pandas as pd
 import numpy as np
-import re
+from nicegui import ui
+import logging
+
+# Importar la capa de presentación
+from presentation.ui import HTMLConverterUI
+
+# =====================================================
+# CONFIGURACIÓN
+# =====================================================
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# =====================================================
+# CONSTANTES DE NEGOCIO
+# =====================================================
 
 LIBRARY_COLUMNS = [
     "id", "register", "name", "description", "system_category", "category", "view",
@@ -20,98 +35,99 @@ LIBRARY_COLUMNS = [
 ]
 
 COLUMN_MAPPING = {
-    'Name': 'name',
-    'Address': 'register',
-    'Dimension': 'dimension',
-    'Comment': 'description',
-    'Wiring': 'category',
-    'String Size': 'length',
-    'Attribute': 'attribute'  # Columna para determinar read/write
+    'BMS Address': 'register',
+    'Variable name': 'name',
+    'Description': 'description',
+    'Min': 'minvalue',
+    'Max': 'maxvalue',
+    'Category': 'category',
+    'UOM': 'unit',
+    'Bms_Ofs': 'offset',
+    'Bms_Type': 'system_category',
 }
 
 
-def extract_min_max_from_dimension(value: str):
+# =====================================================
+# LÓGICA DE NEGOCIO
+# =====================================================
+
+def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
     """
-    Extrae valores mínimo y máximo de un texto como '[1...23]', '[1-23]', '1...23', '1-23'
-    Retorna (min, max) o (NaN, NaN) si no se puede extraer.
+    Procesa un archivo HTML y extrae tablas de parámetros.
     """
-    if not isinstance(value, str):
-        return np.nan, np.nan
-
-    value = value.strip()
-
-    # Buscar formatos comunes: [1...23], [1..23], [1-23], 1...23, 1-23
-    match = re.search(r'\[?\s*(\-?\d+)\s*(?:\.\.\.|\.{2,}|-|–)\s*(\-?\d+)\s*\]?', value)
-    if match:
-        try:
-            return float(match.group(1)), float(match.group(2))
-        except ValueError:
-            return np.nan, np.nan
-    return np.nan, np.nan
-
-
-def convert_excel_to_excel(input_path: str, output_path: str = "parametros_procesados.xlsx"):
-    """
-    Lee un archivo Excel, procesa las columnas según COLUMN_MAPPING,
-    aplica transformaciones y exporta el resultado unificado a un nuevo Excel.
-    """
-    input_file = Path(input_path)
-    if not input_file.exists():
-        print(f"Error: Archivo no encontrado en la ruta: {input_path}")
-        sys.exit(1)
-
-    print(f"Leyendo tablas del archivo Excel: {input_path}")
+    logger.info("Iniciando análisis HTML")
+    html_io = BytesIO(html_content)
 
     try:
-        xls = pd.ExcelFile(input_file)
-        sheet_names = xls.sheet_names
+        list_of_dataframes: List[pd.DataFrame] = pd.read_html(
+            html_io,
+            header=0,
+            flavor='bs4'
+        )
+        logger.info(f"Se encontraron {len(list_of_dataframes)} tablas en el HTML")
     except Exception as e:
-        print(f"Error al abrir el archivo Excel: {e}")
-        sys.exit(1)
+        logger.error(f"Error al parsear HTML: {e}", exc_info=True)
+        ui.notify(f"Error al procesar el archivo HTML: {e}", type='negative')
+        return None
+
+    if not list_of_dataframes or len(list_of_dataframes) < 2:
+        ui.notify("No se encontraron tablas válidas para exportar.", type='warning')
+        return None
 
     processed_dfs = []
+    try:
+        for df in list_of_dataframes[1:]:
+            processed_df = _process_dataframe(df)
+            processed_dfs.append(processed_df)
 
-    for i, sheet_name in enumerate(sheet_names, start=1):
-        print(f"Procesando hoja {i}: {sheet_name}")
+        final_df = pd.concat(processed_dfs, ignore_index=True)
+        final_df["id"] = range(1, len(final_df) + 1)
+        final_df["view"] = "simple"
 
-        # Leemos todo el contenido con encabezado en la primera fila
-        df = pd.read_excel(input_file, sheet_name=sheet_name, header=0)
+        final_df = _add_default_columns(final_df)
+        result_df = final_df.reindex(columns=LIBRARY_COLUMNS)
 
-        # --- Eliminar la segunda fila (índice 1) ---
-        if len(df) > 0:
-            df = df.drop(df.index[0]).reset_index(drop=True)
+        logger.info(
+            f"Procesamiento HTML completado: "
+            f"{len(result_df)} filas, {len(result_df.columns)} columnas"
+        )
+        return result_df
 
-        # --- Normalización de columnas ---
-        df.columns = df.columns.astype(str).str.strip()
-        df.rename(columns=COLUMN_MAPPING, inplace=True, errors='ignore')
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    except Exception as e:
+        logger.error(f"Error durante el procesamiento de tablas: {e}", exc_info=True)
+        ui.notify(f"Error durante el procesamiento: {e}", type='negative')
+        return None
 
-        # --- Extraer min y max de Dimension ---
-        if 'dimension' in df.columns:
-            df['dimension'] = df['dimension'].astype(str)
-            df[['minvalue', 'maxvalue']] = df['dimension'].apply(
-                lambda x: pd.Series(extract_min_max_from_dimension(x))
-            )
-            df.drop(columns=['dimension'], inplace=True, errors='ignore')
 
-        # --- Limpieza de texto ---
-        for col in ['category', 'name', 'description', 'attribute']:
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.strip()
+def _process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Procesa un DataFrame individual aplicando transformaciones y mapeos."""
+    df.columns = df.columns.astype(str).str.strip()
+    if not df.empty and not str(df.iloc[0, 0]).strip().isdigit():
+        df = df.iloc[1:].copy()
 
-        # --- system_category basado en category ---
-        df['system_category'] = ' '
-        if 'category' in df.columns:
-            df.loc[df['category'].str.upper().str.contains('%ID'), 'system_category'] = 'DIGITAL_INPUT'
-            df.loc[df['category'].str.upper().str.contains('%QD'), 'system_category'] = 'DIGITAL_OUTPUT'
-            df.loc[df['category'].str.upper().str.contains('%IX'), 'system_category'] = 'BITDIGITAL_INPUT'
-            df.loc[df['category'].str.upper().str.contains('%QX'), 'system_category'] = 'BITDIGITAL_OUTPUT'
-            df.loc[df['category'].str.upper().str.contains('nan'), 'system_category'] = " "
-            df.loc[df['category'].str.upper().str.contains(' '), 'system_category'] = " "
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    df = _apply_column_mapping(df)
+    df = _process_access_permissions(df)
+    df = _process_specific_columns(df)
+    df = _determine_data_length(df)
+    df = _apply_deep_classification(df)
+    df = _apply_sampling_rules(df)  # ✅ Establecer sampling después de la clasificación
+    return df
 
-        # --- Reglas de lectura/escritura basadas en attribute ---
-        df['read'] = 0
-        df['write'] = 0
+
+def _apply_column_mapping(df: pd.DataFrame) -> pd.DataFrame:
+    access_col_name = next((n for n in ['Read/Write', 'Direction'] if n in df.columns), None)
+    current_mapping = COLUMN_MAPPING.copy()
+    if access_col_name:
+        current_mapping[access_col_name] = 'access_type'
+    df.rename(columns=current_mapping, inplace=True, errors='ignore')
+    return df
+
+
+def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
+    """Procesa los permisos de lectura/escritura según el tipo y permisos declarados."""
+    df['read'] = 0
+    df['write'] = 0
 
     if 'access_type' in df.columns and 'system_category' in df.columns:
         access = df['access_type'].astype(str).str.upper().str.strip()
@@ -129,66 +145,134 @@ def convert_excel_to_excel(input_path: str, output_path: str = "parametros_proce
         df.loc[read_write_mask & (system_type == 'INTEGER'), ['read', 'write']] = [3, 6]
         df.loc[read_write_mask & (system_type == 'DIGITAL'), ['read', 'write']] = [1, 5]
 
-        # --- Valores por defecto ---
-        df['sampling'] = 60
-        df['unit'] = 0
-        df['offset'] = 0.0
+        df.drop(columns=['access_type'], inplace=True, errors='ignore')
 
-        processed_dfs.append(df)
+    return df
 
-    if not processed_dfs:
-        print("No se encontraron hojas válidas para procesar.")
-        return
 
-    final_df = pd.concat(processed_dfs, ignore_index=True)
+def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if 'offset' in df.columns:
+        df['offset'] = pd.to_numeric(
+            df['offset'].astype(str).str.strip().replace(['', '---', 'nan'], np.nan),
+            errors='coerce'
+        ).fillna(0.0)
 
-    num_rows = len(final_df)
-    final_df["id"] = range(1, num_rows + 1)
-    final_df["view"] = "simple"
+    if 'unit' in df.columns:
+        df['unit'] = df['unit'].astype(str).str.strip().replace(['0', '---', None], np.nan).fillna(' ')
 
-    # --- Completar columnas faltantes ---
-    final_df["addition"] = 0
-    final_df["mask"] = 0
-    final_df["value"] = 0
-    final_df["general_icon"] = np.nan
-    final_df["alarm"] = """ {"severity":"none"} """
-    final_df["metadata"] = "[]"
-    final_df["l10n"] = '{"_type":"l10n","default_lang":"en_US","translations":{"en_US":{"name":null,"_type":"languages","description":null}}}'
-    final_df["tags"] = "[]"
-    final_df["type"] = "modbus"
-    final_df["parameter_write_byte_position"] = np.nan
-    final_df["mqtt"] = np.nan
-    final_df["json"] = np.nan
-    final_df["current_value"] = np.nan
-    final_df["current_error_status"] = np.nan
-    final_df["notes"] = np.nan
+    if 'category' in df.columns:
+        df['category'] = df['category'].astype(str).str.upper().str.strip()
+        df.loc[df['category'] == 'ALARMS', 'system_category'] = 'ALARM'
 
-    final_df = final_df.reindex(columns=LIBRARY_COLUMNS, fill_value=np.nan)
+    if 'name' in df.columns:
+        alarm_name_mask = df['name'].astype(str).str.contains('Al', na=False)
+        df.loc[alarm_name_mask, 'system_category'] = "ALARM"
 
-    final_df['category'] = final_df['category'].replace(np.nan, "")
+    if 'system_category' in df.columns:
+        df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
 
-    # --- Exportar ---
-    try:
-        with pd.ExcelWriter(output_path, engine='openpyxl', mode='w') as writer:
-            final_df.to_excel(writer, sheet_name="Parametros_Procesados", index=False)
-        print(f"✅ Archivo exportado correctamente con {len(final_df)} filas: {Path(output_path).resolve()}")
-    except Exception as e:
-        print(f"Error al escribir el archivo Excel: {e}")
-        sys.exit(1)
+    for col in ['minvalue', 'maxvalue']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.strip().replace(['', '---', 'nan'], np.nan),
+                errors='coerce'
+            )
 
+    return df
+
+
+def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
+    df['length'] = '16bit'
+    if 'minvalue' in df.columns and 'maxvalue' in df.columns:
+        df.loc[(df['minvalue'] < 0) | (df['maxvalue'] < 0), 'length'] = 's16'
+    return df
+
+
+def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
+    """Clasificación profunda de categorías de sistema."""
+    if 'system_category' not in df.columns:
+        df['system_category'] = 'STATUS'
+
+    df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
+
+    is_writeable = df['write'] > 0
+    is_readable = df['read'] > 0
+    is_read_only = (df['read'] > 0) & (df['write'] == 0)
+    is_alarm = df['system_category'] == 'ALARM'
+
+    is_analog = df['system_category'].isin(['ANALOG', 'ANALOG_INPUT', 'ANALOG_OUTPUT'])
+    is_integer = df['system_category'].isin(['INTEGER'])
+    is_digital = df['system_category'].isin(['DIGITAL', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'])
+
+    conditions_new_cat = [
+        (is_alarm),
+        (is_analog) & (is_writeable) & (is_readable),
+        (is_integer) & (is_writeable) & (is_readable),
+        (is_analog | is_integer | is_digital) & (is_read_only),
+        (is_digital) & (is_writeable) & (is_readable),
+    ]
+
+    choices_new_cat = [
+        'ALARM',
+        'SET_POINT',
+        'CONFIG_PARAMETER',
+        'DEFAULT',
+        'COMMAND',
+    ]
+
+    df['system_category'] = np.select(conditions_new_cat, choices_new_cat, default='STATUS')
+    return df
+
+
+def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
+    """Asigna valores de 'sampling' según la categoría final del sistema."""
+    sampling_rules = {
+        'ALARM': 30,
+        'SET_POINT': 300,
+        'CONFIG_PARAMETER': 0,
+        'DEFAULT': 60,
+        'COMMAND': 0,
+    }
+
+    if 'sampling' not in df.columns:
+        df['sampling'] = 60  # valor por defecto
+
+    for category, value in sampling_rules.items():
+        df.loc[df['system_category'] == category, 'sampling'] = value
+
+    return df
+
+
+def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
+    defaults = {
+        "addition": 0,
+        "mask": 0,
+        "value": 0,
+        "alarm": """ {"severity":"none"} """,
+        "metadata": "[]",
+        "l10n": '{"_type":"l10n","default_lang":"en_US","translations":{"en_US":{"name":null,"_type":"languages","description":null}}}',
+        "tags": "[]",
+        "type": "modbus",
+    }
+
+    for col, val in defaults.items():
+        if col not in df.columns:
+            df[col] = val
+    return df
+
+
+# =====================================================
+# PUNTO DE ENTRADA
+# =====================================================
 
 def main():
-    """Función principal para manejar la ruta de entrada."""
-    if len(sys.argv) >= 2:
-        path = sys.argv[1]
-    else:
-        default_path = "input.xlsx"
-        path = input(f"Ruta al archivo Excel (deja vacío para '{default_path}'): ").strip()
-        if not path:
-            path = default_path
-
-    convert_excel_to_excel(path)
+    logger.info("Inicializando aplicación")
+    ui_controller = HTMLConverterUI(process_html_callback=process_html)
+    ui_controller.create_ui()
+    logger.info("Aplicación iniciada correctamente")
 
 
-if __name__ == "__main__":
-    main()
+main()
+
+if __name__ in {'__main__', '__mp_main__'}:
+    ui.run(title="Conversor HTML a Excel", reload=True)
