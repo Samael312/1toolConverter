@@ -28,22 +28,24 @@ class HTMLConverterUI:
         self.uploaded_file_content: Optional[bytes] = None
         self.processed_data: Optional[pd.DataFrame] = None
         self.grouped_data: Optional[pd.DataFrame] = pd.DataFrame()
+        self.backend_selected: Optional[str] = None  
 
         # Componentes UI
+        self.backend_selector = None   
+        self.upload_component = None   
         self.process_button = None
         self.table = None
         self.table_card = None
         self.group_selector = None
         self.assign_button = None
         self.selected_rows = []
-
-        # Segunda tabla
         self.group_table = None
         self.group_table_card = None
         self.delete_rows_button = None
         self.clear_table_button = None
         self.download_button = None
         self.selected_group_rows = []
+
 
     async def handle_upload(self, e):
         try:
@@ -229,29 +231,142 @@ class HTMLConverterUI:
         .q-table__container {
             max-height: 600px;
         }
-                          
         </style>
         """)
 
         with ui.header().classes('items-center justify-between'):
-            ui.label('Conversor HTML a Parámetros').classes('text-xl font-bold')
+            ui.label('Conversor HTML / Excel a Parámetros').classes('text-xl font-bold')
 
         with ui.column().classes('w-full p-4 md:p-8 items-center gap-8'):
+            # 🆕 NUEVO: Selector de backend al inicio
+            with ui.card().classes('w-full max-w-2xl'):
+                ui.label('0. Seleccionar Backend').classes('text-lg font-bold')
+                ui.separator()
+                self.backend_selector = ui.select(
+                    options=['Keyter', 'iPro'],
+                    label='Selecciona el backend',
+                    on_change=self.handle_backend_selection
+                ).props('outlined dense clearable').classes('w-64')
+
             self._create_upload_section()
             self._create_process_section()
             self._create_table_section()
             self._create_group_table_section()
 
-    def _create_upload_section(self):
-        with ui.card().classes('w-full max-w-2xl'):
-            ui.label('1. Cargar Archivo HTML').classes('text-lg font-bold')
-            ui.separator()
-            upload = ui.upload(
-                label='Seleccionar o arrastrar archivo HTML',
+            # 🆕 Desactivar todo hasta elegir backend
+            if self.process_button:
+                self.process_button.disable()
+            if self.upload_component:
+                self.upload_component.disable()
+            if self.table_card:
+                self.table_card.visible = False
+            if self.group_table_card:
+                self.group_table_card.visible = False
+
+    def handle_backend_selection(self, e):
+        """🆕 Activa o desactiva la UI según el backend seleccionado."""
+        backend = e.value
+        self.backend_selected = backend
+
+        # 🔹 Reiniciar interfaz al cambiar de backend
+        self._reset_ui_state()
+
+        if not backend:
+            ui.notify("Selecciona un backend para continuar.", type='warning')
+            if self.upload_component:
+                self.upload_component.disable()
+            if self.process_button:
+                self.process_button.disable()
+            return
+
+        # Configurar tipo de archivo permitido
+        if backend == 'Keyter':
+            file_accept = '.html'
+        elif backend == 'iPro':
+            file_accept = '.xlsx'
+        else:
+            file_accept = ''
+
+        if self.upload_component:
+            self.upload_component.enable()
+            self.upload_component.props(f'accept="{file_accept}"')
+
+        ui.notify(
+            f"Backend seleccionado: {backend}. Ahora puedes subir un archivo {file_accept}.",
+            type='positive'
+        )
+
+
+    def _reset_ui_state(self):
+        """Reinicia el estado de la interfaz al cambiar de backend."""
+        # Limpiar archivo subido
+        self.uploaded_file_content = None
+
+        # Limpiar DataFrames
+        self.processed_data = None
+        self.grouped_data = pd.DataFrame()
+
+        # Limpiar tablas visuales
+        if self.table:
+            self.table.rows = []
+            self.table.update()
+
+        if self.group_table:
+            self.group_table.rows = []
+            self.group_table.update()
+
+        # Ocultar las tarjetas
+        if self.table_card:
+            self.table_card.visible = False
+        if self.group_table_card:
+            self.group_table_card.visible = False
+
+        # Deshabilitar botones
+        if self.download_button:
+            self.download_button.disable()
+        if self.process_button:
+            self.process_button.disable()
+        
+        self._recreate_upload_component()
+
+        ui.notify("Interfaz reiniciada tras cambiar de backend.", type='info', timeout=2.5)
+
+    def _recreate_upload_component(self):
+        """Recrea el componente de subida para limpiar archivos cargados y mantener el estilo."""
+        if hasattr(self, "upload_container"):
+            self.upload_container.clear()  # Limpia el contenedor anterior
+
+        with self.upload_container:
+
+            self.upload_component = ui.upload(
+                label="Seleccionar o arrastrar archivo aquí",
                 auto_upload=True,
-                max_files=1
-            ).props('accept=".html"').classes('w-full')
-            upload.on_upload(self.handle_upload)
+                max_files=1,
+            ).props('flat bordered square no-wrap').classes(
+                'w-96 h-32 justify-left items-left text-center bg-gray-50 hover:bg-gray-100 rounded-2xl border border-gray-300'
+            )
+
+            self.upload_component.on_upload(self.handle_upload)
+
+            if self.backend_selected == "Keyter":
+                self.upload_component.props('accept=".html"')
+            elif self.backend_selected == "iPro":
+                self.upload_component.props('accept=".xlsx"')
+            else:
+                self.upload_component.disable()
+
+
+
+    def _create_upload_section(self):
+        with ui.card().classes('w-full max-w-2xl mx-auto p-4'):
+            ui.label('1. Cargar Archivo').classes('text-lg font-bold mb-2')
+            ui.separator()
+
+            # 🔹 Contenedor dinámico del upload
+            self.upload_container = ui.column().classes('w-full items-left justify-left')
+            self._recreate_upload_component()
+
+
 
     def _create_process_section(self):
         with ui.card().classes('w-full max-w-2xl'):
@@ -262,7 +377,8 @@ class HTMLConverterUI:
                     on_click=self.process_file,
                     icon='play_for_work'
                 )
-                self.process_button.disable()  # se habilita al subir archivo
+                self.process_button.disable()
+
 
     def _create_table_section(self):
         with ui.card().classes('w-full max-w-6xl') as table_card:
