@@ -283,6 +283,7 @@ class HTMLConverterUI:
                     options=['register', 'name', 'description', 'system_category'],
                     value='name',
                     label='Columna',
+                    on_change= self.reset_search_input
                 ).props('dense outlined').classes('w-48')
 
                 self.search_input = ui.input(
@@ -317,32 +318,54 @@ class HTMLConverterUI:
 
             self.table.on('selection', self.handle_selection)
 
-            # --- Icono de estado colorido ---
+            # --- Selector desplegable (drop-down) en la columna "estado" ---
+            # Usamos un slot de la tabla para renderizar un QSelect por fila.
+            # Al actualizar el valor emitimos un evento 'estado-change' que manejamos en Python
             self.table.add_slot('body-cell-estado', '''
-                <q-td key="estado" :props="props">
-                    <template v-if="props.row.system_category">
-                        <div style="font-size: 12px; display: flex; align-items: center;">
-                            <q-icon
-                                name="check_circle"
-                                :color="{
-                                    'ALARM': 'red',
-                                    'SET_POINT': 'blue',
-                                    'CONFIG_PARAMETER': 'orange',
-                                    'COMMAND': 'purple',
-                                    'ANALOG_INPUT': 'teal',
-                                    'ANALOG_OUTPUT': 'cyan',
-                                    'DIGITAL_INPUT': 'amber',
-                                    'DIGITAL_OUTPUT': 'green'
-                                }[props.row.system_category] || 'grey'"
-                                size="xs"
-                                class="q-mr-xs"
-                            />
-                            <span>{{ props.row.system_category }}</span>
-                        </div>
-                    </template>
-                    <span v-else style="font-size: 12px;">—</span>
-                </q-td>
-            ''')
+    <q-td key="estado" :props="props">
+        <q-select
+            v-model="props.row.system_category"
+            :options="[
+                'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'
+            ]"
+            dense filled outlined emit-value map-options
+            @update:model-value="$parent.$emit('estado-change', props.row)"
+            popup-content-class="bg-white text-black"
+        >
+            <template v-slot:selected-item="scope">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <div :style="{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontSize: '12px',
+                        backgroundColor: ({
+                            'ALARM': 'red',
+                            'SET_POINT': '#0E57E8',
+                            'CONFIG_PARAMETER': '#1CCDD6',
+                            'COMMAND': 'purple',
+                            'ANALOG_INPUT': '#00E343',
+                            'ANALOG_OUTPUT': '#13662C',
+                            'DIGITAL_INPUT': 'blue',
+                            'DIGITAL_OUTPUT': 'black'
+                        }[props.row.system_category] || 'grey')
+                    }">
+                        {{ props.row.system_category.charAt(0) }}
+                    </div>
+                    <span>{{ props.row.system_category }}</span>
+                </div>
+            </template>
+        </q-select>
+    </q-td>
+''')
+
+            # Registrar el manejador del evento emitido desde el slot
+            self.table.on('estado-change', self.handle_estado_change)
 
             # --- Controles debajo de la tabla ---
             with ui.row().classes('mt-4 items-center gap-4'):
@@ -374,6 +397,7 @@ class HTMLConverterUI:
                     options=['register', 'name', 'description', 'system_category'],
                     value='name',
                     label='Columna',
+                    on_change= self.reset_group_search_input
                 ).props('dense outlined').classes('w-48')
 
                 self.group_search_input = ui.input(
@@ -551,7 +575,7 @@ class HTMLConverterUI:
 
                 # Agregar filas nuevas o actualizadas
                 self.grouped_data = pd.concat(
-                    [self.grouped_data, selected_rows_df],
+                    [selected_rows_df, self.grouped_data],
                     ignore_index=True
                 )
 
@@ -600,7 +624,7 @@ class HTMLConverterUI:
             deleted = before_count - after_count
             
             ui.notify(f'Se eliminaron {deleted} fila(s).', type='positive')
-        
+       
         except Exception as ex:
             logger.exception(f"Error al eliminar filas: {ex}")
             ui.notify(f"Error al eliminar filas: {ex}", type='negative')
@@ -771,6 +795,86 @@ class HTMLConverterUI:
             logger.exception(f"Error al aplicar filtro por categoría en tabla de grupos: {ex}")
             ui.notify(f"Error al aplicar filtro por categoría: {ex}", type='negative')
 
+    def handle_estado_change(self, e):
+        """Maneja el evento emitido desde el slot 'estado' cuando se cambia el dropdown.
+        El payload esperado contiene la fila completa (props.row)."""
+        try:
+            args = getattr(e, 'args', e)
+            # args puede ser el dict de la fila o una lista con la fila
+            row = None
+            if isinstance(args, dict):
+                # en muchos casos args será la fila directamente
+                row = args
+            elif isinstance(args, (list, tuple)) and len(args) > 0 and isinstance(args[0], dict):
+                row = args[0]
+            else:
+                # intentar extraer 'args' del dict
+                if isinstance(args, dict) and 'args' in args:
+                    row = args['args']
 
+            if not row or 'id' not in row:
+                logger.debug('Evento estado-change sin payload válido')
+                return
 
+            row_id = str(row.get('id'))
+            new_group = row.get('system_category')
 
+            if self.processed_data is None:
+                logger.debug('No hay datos procesados al cambiar estado')
+                return
+
+            # Actualizar processed_data para reflejar el cambio
+            self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'system_category'] = new_group
+
+            # Construir dataframe de la fila actualizada
+            selected_row_df = self.processed_data.loc[self.processed_data['id'].astype(str) == row_id].copy()
+
+            if selected_row_df.empty:
+                logger.debug(f'No se encontró fila con id {row_id} en processed_data')
+                return
+
+            # Agregar o actualizar en grouped_data (mismo comportamiento que assign_group_to_selection pero para una fila)
+            if self.grouped_data is None or self.grouped_data.empty:
+                self.grouped_data = selected_row_df
+            else:
+                all_cols = list(self.grouped_data.columns)
+                # Si las columnas no coinciden, reindexamos selected_row_df para que coincida
+                selected_row_df = selected_row_df.reindex(columns=all_cols, fill_value=np.nan)
+
+                # Forzar ids a string
+                self.grouped_data['id'] = self.grouped_data['id'].astype(str)
+                selected_row_df['id'] = selected_row_df['id'].astype(str)
+
+                # Eliminar fila existente con ese id (para sobrescribir)
+                self.grouped_data = self.grouped_data[~self.grouped_data['id'].isin(selected_row_df['id'])]
+
+                # Concatenar
+                self.grouped_data = pd.concat([selected_row_df, self.grouped_data], ignore_index=True)
+
+            # Actualizamos la interfaz
+            self.update_group_table()
+            self.display_table()
+
+            ui.notify(f'Fila {row_id} clasificada como {new_group}.', type='positive')
+
+        except Exception as ex:
+            logger.exception(f"Error manejando cambio de estado: {ex}")
+            ui.notify(f"Error manejando cambio de estado: {ex}", type='negative')
+
+    def reset_search_input(self, e):
+        """Limpia el cuadro de búsqueda y restaura la tabla principal al cambiar de columna."""
+        if self.search_input:
+            self.search_input.value = ''
+        if self.processed_data is not None and not self.processed_data.empty:
+            self.table.rows = self.processed_data.to_dict('records')
+            self.table.update()
+        ui.notify("Filtro de búsqueda reiniciado.", type='info', timeout=1.5)
+
+    def reset_group_search_input(self, e):
+        """Limpia el cuadro de búsqueda y restaura la tabla de grupos al cambiar de columna."""
+        if self.group_search_input:
+            self.group_search_input.value = ''
+        if self.grouped_data is not None and not self.grouped_data.empty:
+            self.group_table.rows = self.grouped_data.to_dict('records')
+            self.group_table.update()
+        ui.notify("Filtro de búsqueda reiniciado.", type='info', timeout=1.5)

@@ -113,11 +113,21 @@ def convert_excel_to_excel(input_path: str, output_path: str = "parametros_proce
         df['read'] = 0
         df['write'] = 0
 
-        if 'attribute' in df.columns:
-            attr = df['attribute'].str.upper().str.strip()
-            df.loc[attr == 'READ', ['read', 'write']] = [3, 0]
-            df.loc[attr == 'READWRITE', ['read', 'write']] = [3, 6]
-            df.loc[attr == 'WRITE', ['read', 'write']] = [0, 6]
+    if 'access_type' in df.columns and 'system_category' in df.columns:
+        access = df['access_type'].astype(str).str.upper().str.strip()
+        system_type = df['system_category'].astype(str).str.upper().str.strip()
+
+        # Solo "R"
+        only_read_mask = access == 'R'
+        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER']), 'read'] = 4
+        df.loc[only_read_mask & system_type.isin(['DIGITAL']), 'read'] = 1
+        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER', 'DIGITAL']), 'write'] = 0
+
+        # "R/W"
+        read_write_mask = access == 'R/W'
+        df.loc[read_write_mask & (system_type == 'ANALOG'), ['read', 'write']] = [3, 6]
+        df.loc[read_write_mask & (system_type == 'INTEGER'), ['read', 'write']] = [3, 6]
+        df.loc[read_write_mask & (system_type == 'DIGITAL'), ['read', 'write']] = [1, 5]
 
         # --- Valores por defecto ---
         df['sampling'] = 60
