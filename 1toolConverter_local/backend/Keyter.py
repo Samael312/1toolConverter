@@ -30,7 +30,7 @@ LIBRARY_COLUMNS = [
     "current_value", "current_error_status", "notes"
 ]
 
-COLUMN_MAPPING = {
+COLUMN_MAPPING1 = {
     "BMS Address": "register",
     "Variable name": "name",
     "Description": "description",
@@ -41,6 +41,15 @@ COLUMN_MAPPING = {
     "Bms_Ofs": "offset",
     "Bms_Type": "system_category",
 }
+
+"""
+COLUMN_MAPPING2 = {
+    "MODBUS ADRESS CAREL": "register",
+    "Name of the variable CAREL": "name",
+    "Unit": "Unit",
+
+}
+"""
 
 # =====================================================
 # FUNCIÓN PRINCIPAL DE PROCESAMIENTO
@@ -69,7 +78,6 @@ def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
         processed_dfs = [_process_dataframe(df) for df in tables[1:]]
         final_df = pd.concat(processed_dfs, ignore_index=True)
         final_df["id"] = range(1, len(final_df) + 1)
-        final_df["view"] = "simple"
 
         final_df = _add_default_columns(final_df)
         result_df = final_df.reindex(columns=LIBRARY_COLUMNS)
@@ -92,18 +100,19 @@ def _process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         df = df.iloc[1:].copy()
 
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    df = _apply_column_mapping(df)
+    df = _apply_column_mapping1(df)
     df = _process_access_permissions(df)
     df = _process_specific_columns(df)
     df = _determine_data_length(df)
     df = _apply_deep_classification(df)
     df = _apply_sampling_rules(df)
+    df = _apply_view_rules(df)
     return df
 
 
-def _apply_column_mapping(df: pd.DataFrame) -> pd.DataFrame:
+def _apply_column_mapping1(df: pd.DataFrame) -> pd.DataFrame:
     access_col_name = next((n for n in ['Read/Write', 'Direction'] if n in df.columns), None)
-    mapping = COLUMN_MAPPING.copy()
+    mapping = COLUMN_MAPPING1.copy()
     if access_col_name:
         mapping[access_col_name] = 'access_type'
     df.rename(columns=mapping, inplace=True, errors='ignore')
@@ -169,22 +178,67 @@ def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
 
     df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
 
-    is_write = df['write'] > 0
-    is_read = df['read'] > 0
+    # 1. Definir las máscaras de estado de acceso y tipo
+    is_writeable = df['write'] > 0
+    is_readable = df['read'] > 0
+    is_read_only = (df['read'] > 0) & (df['write'] == 0)
+    
+    # Nota: is_alarm ya tiene el valor 'ALARM' de la detección por 'name' o 'category'
     is_alarm = df['system_category'] == 'ALARM'
+
+        # Se redefinen is_analog/is_integer/is_digital para excluir ALARM, 
+        # ya que ya se manejará en la primera condición.
     is_analog = df['system_category'].isin(['ANALOG', 'ANALOG_INPUT', 'ANALOG_OUTPUT'])
     is_integer = df['system_category'].isin(['INTEGER'])
     is_digital = df['system_category'].isin(['DIGITAL', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'])
 
+    # 2. Construir la lista de condiciones con la nueva distinción
     conditions = [
-        is_alarm,
-        (is_analog | is_integer) & is_write & is_read,
-        (is_analog | is_integer | is_digital) & (is_read & ~is_write),
-        is_digital & is_write & is_read,
+        # 0. ALARM (MÁXIMA PRIORIDAD)
+        (is_alarm), 
+        
+        # 1. SET_POINT: Analog y R/W
+        (is_analog) & (is_writeable) & (is_readable), 
+        
+        # 2. CONFIG_PARAMETER: Integer y R/W
+        (is_integer) & (is_writeable) & (is_readable),
+        
+        # 3. DEFAULT: Analog/Integer/Digital R-Only
+        (is_analog | is_integer | is_analog) & (is_read_only),
+        
+        # 4. COMMAND: Digital y R/W
+        (is_digital) & (is_writeable) & (is_readable),
+        
     ]
-    choices = ['ALARM', 'SET_POINT', 'DEFAULT', 'COMMAND']
+            
+            # 3. Construir la lista de opciones (debe coincidir con la cantidad de condiciones)
+    choices = [
+                'ALARM',              # 0. ALARM
+                'SET_POINT',          # 1. Analog R/W
+                'CONFIG_PARAMETER',   # 2. Integer R/W
+                'DEFAULT',            # 3. Analog/Integer R-Only
+                'COMMAND',            # 4. Digital R/W (Commands)
+            ]
+
 
     df['system_category'] = np.select(conditions, choices, default='STATUS')
+    
+    return df
+
+def _apply_view_rules(df: pd.DataFrame) -> pd.DataFrame:
+    # Forzar coherencia si viene de una edición externa
+    df.loc[df['system_category'] == 'STATUS', 'view'] = 'basic'
+    df.loc[df['system_category'] == 'ALARM', 'view'] = 'simple'
+
+    view ={
+        'ALARM': 'simple',
+        'SET_POINT': "simple",
+        'DEFAULT': "simple",
+        'COMMAND': "simple",
+        'STATUS': "basic",
+        'CONFIG_PARAMETER' : "simple"
+    }
+    df['view'] = df['system_category'].map(view).fillna('simple')
     return df
 
 

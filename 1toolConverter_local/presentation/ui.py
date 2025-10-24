@@ -103,22 +103,30 @@ class HTMLConverterUI:
         if df is not None and not df.empty:
             self.processed_data = df
 
-            # --- 🟢 NUEVO: Detectar filas ya clasificadas ---
-            valid_groups = [
+            # --- Detectar filas ya clasificadas ---
+            valid_groups1 = [
                 'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS'
             ]
 
-            auto_grouped = df[df['system_category'].isin(valid_groups)].copy()
+            valid_groups2 = [
+                'basic', 'primary'
+            ]
 
-            if not auto_grouped.empty:
-                self.grouped_data = auto_grouped.reset_index(drop=True)
+            auto_grouped1 = df[df['system_category'].isin(valid_groups1)]
+            auto_grouped2 = df[df['view'].isin(valid_groups2)]
+
+            # Combinar ambos sin duplicados
+            combined_grouped = pd.concat([auto_grouped1, auto_grouped2]).drop_duplicates()
+
+            if not combined_grouped.empty:
+                self.grouped_data = combined_grouped.reset_index(drop=True)
                 ui.notify(
-                    f"{len(auto_grouped)} variables clasificadas detectadas automáticamente.",
+                    f"{len(combined_grouped)} variables clasificadas detectadas automáticamente.",
                     type='positive',
                     timeout=2.5
                 )
-
+                
             if self.download_button:
                 self.download_button.enable()
 
@@ -157,7 +165,7 @@ class HTMLConverterUI:
 
 
         cols = ["id", "estado", "register", "name", "description", "system_category",
-                "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
+                "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
 
@@ -389,7 +397,7 @@ class HTMLConverterUI:
             self.table_card.visible = False
 
             cols = ["id", "register", "name", "description", "system_category",
-                    "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
+                    "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view" ]
 
             # Selector de columna + campo de búsqueda
             with ui.row().classes('mt-2 mb-2 items-center gap-2'):
@@ -414,7 +422,7 @@ class HTMLConverterUI:
                 self.category_filter = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT'
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS'
                     ],
                     multiple=True,
                     label='Selecciona grupos',
@@ -443,7 +451,7 @@ class HTMLConverterUI:
             v-model="props.row.system_category"
             :options="[
                 'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS'
             ]"
             dense filled outlined emit-value map-options
             @update:model-value="$parent.$emit('estado-change', props.row)"
@@ -468,7 +476,8 @@ class HTMLConverterUI:
                             'ANALOG_INPUT': '#00E343',
                             'ANALOG_OUTPUT': '#13662C',
                             'DIGITAL_INPUT': 'blue',
-                            'DIGITAL_OUTPUT': 'black'
+                            'DIGITAL_OUTPUT': 'black',
+                            'STATUS': '#B8B302'
                         }[props.row.system_category] || 'grey')
                     }">
                         {{ props.row.system_category.charAt(0) }}
@@ -483,12 +492,51 @@ class HTMLConverterUI:
             # Registrar el manejador del evento emitido desde el slot
             self.table.on('estado-change', self.handle_estado_change)
 
+            self.table.add_slot('body-cell-view', '''
+    <q-td key="estado" :props="props">
+        <q-select
+            v-model="props.row.view"
+            :options="[
+                'basic', 'simple', 'primary'
+            ]"
+            dense filled outlined emit-value map-options
+            @update:model-value="$parent.$emit('view-change', props.row)"
+            popup-content-class="bg-white text-black"
+        >
+            <template v-slot:selected-item="scope">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <div :style="{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontSize: '12px',
+                        backgroundColor: ({
+                            'basic': 'black',
+                            'primary': 'blue',
+                                 'simple':  'teal'
+                        }[props.row.view] || 'grey')
+                    }">
+                        {{ props.row.view.charAt(0) }}
+                    </div>
+                    <span>{{ props.row.view }}</span>
+                </div>
+            </template>
+        </q-select>
+    </q-td>
+''')
+            # Registrar el manejador del evento emitido desde el slot
+            self.table.on('view-change', self.handle_view_change)
+
             # --- Controles debajo de la tabla ---
             with ui.row().classes('mt-4 items-center gap-4'):
                 self.group_selector = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS'
                     ],
                     label='Asignar a grupo',
                 ).props('dense')
@@ -527,7 +575,7 @@ class HTMLConverterUI:
                 self.group_category_filter = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT'
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS'
                     ],
                     multiple=True,
                     label='Selecciona grupos',
@@ -672,6 +720,20 @@ class HTMLConverterUI:
             # Asignar nuevo grupo
             selected_rows_df['system_category'] = group
 
+            # Si se asigna STATUS, poner view como basic
+            if group == 'STATUS':
+                selected_rows_df['view'] = 'basic'
+                self.processed_data.loc[
+                    self.processed_data['id'].astype(str).isin(selected_as_str), 'view'
+                ] = 'basic'
+            
+            if group == 'ALARM':
+                selected_rows_df['view'] = np.nan
+                self.processed_data.loc[
+                    self.processed_data['id'].astype(str).isin(selected_as_str), 'view'
+                ] = np.nan
+
+
             # Si la tabla de grupos está vacía, se inicializa
             if self.grouped_data is None or self.grouped_data.empty:
                 self.grouped_data = selected_rows_df
@@ -763,7 +825,7 @@ class HTMLConverterUI:
 
         if self.grouped_data is not None and not self.grouped_data.empty:
             cols = ["id", "register", "name", "description", "system_category",
-                "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
+                "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
             self.group_table.columns = [
                 {'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True}
@@ -945,6 +1007,15 @@ class HTMLConverterUI:
             # Construir dataframe de la fila actualizada
             selected_row_df = self.processed_data.loc[self.processed_data['id'].astype(str) == row_id].copy()
 
+            # Si es STATUS, modificar view a basic
+            if new_group == 'STATUS':
+                selected_row_df['view'] = 'basic'
+                self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'view'] = 'basic'
+
+            if new_group == 'ALARM':
+                selected_row_df['view'] = np.nan
+                self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'view'] = np.nan
+
             if selected_row_df.empty:
                 logger.debug(f'No se encontró fila con id {row_id} en processed_data')
                 return
@@ -976,6 +1047,78 @@ class HTMLConverterUI:
         except Exception as ex:
             logger.exception(f"Error manejando cambio de estado: {ex}")
             ui.notify(f"Error manejando cambio de estado: {ex}", type='negative')
+    
+    def handle_view_change(self, e):
+        """Maneja el evento emitido desde el slot 'estado' cuando se cambia el dropdown.
+        El payload esperado contiene la fila completa (props.row)."""
+        try:
+            args = getattr(e, 'args', e)
+            row = None
+            if isinstance(args, dict):
+                row = args
+            elif isinstance(args, (list, tuple)) and len(args) > 0 and isinstance(args[0], dict):
+                row = args[0]
+
+            if not row or 'id' not in row:
+                logger.debug('Evento view-change sin payload válido')
+                return
+
+            row_id = str(row.get('id'))
+            new_view = row.get('view')
+
+            if self.processed_data is None:
+                return
+
+            # ✅ Si se selecciona "primary", removerlo de otras filas.
+            if new_view == 'primary':
+                # Encontrar cualquier fila que tenga "primary" excepto la actual
+                mask_primary = (
+                    (self.processed_data['view'] == 'primary') &
+                    (self.processed_data['id'].astype(str) != row_id)
+                )
+
+                # Cambiar esas vistas a "simple"
+                self.processed_data.loc[mask_primary, 'view'] = 'simple'
+
+            # ✅ Ahora aplicar el nuevo valor a la fila actual
+            self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'view'] = new_view
+
+            # Reconstruir dataframe de la fila actualizada
+            selected_row_df = self.processed_data.loc[self.processed_data['id'].astype(str) == row_id].copy()
+
+            if selected_row_df.empty:
+                return
+
+           # ✅ Sincronizar grouped_data con los cambios en processed_data (especialmente para el caso "primary")
+            if self.grouped_data is not None and not self.grouped_data.empty:
+                # Actualizamos todas las vistas desde processed_data
+                self.grouped_data['view'] = self.grouped_data['id'].astype(str).map(
+                    dict(zip(self.processed_data['id'].astype(str), self.processed_data['view']))
+                )
+
+            # ✅ Agregar o reemplazar solo la fila actualizada
+            if self.grouped_data is None or self.grouped_data.empty:
+                self.grouped_data = selected_row_df
+            else:
+                all_cols = list(self.grouped_data.columns)
+                selected_row_df = selected_row_df.reindex(columns=all_cols, fill_value=np.nan)
+
+                self.grouped_data['id'] = self.grouped_data['id'].astype(str)
+                selected_row_df['id'] = selected_row_df['id'].astype(str)
+
+                self.grouped_data = self.grouped_data[~self.grouped_data['id'].isin(selected_row_df['id'])]
+                self.grouped_data = pd.concat([selected_row_df, self.grouped_data], ignore_index=True)
+
+
+            # ✅ Refrescar tablas
+            self.update_group_table()
+            self.display_table()
+
+            ui.notify(f'Fila {row_id} ahora tiene vista "{new_view}".', type='positive')
+
+        except Exception as ex:
+            logger.exception(f"Error manejando cambio de vista: {ex}")
+            ui.notify(f"Error manejando cambio de vista: {ex}", type='negative')
 
     def reset_search_input(self, e):
         """Limpia el cuadro de búsqueda y restaura la tabla principal al cambiar de columna."""
