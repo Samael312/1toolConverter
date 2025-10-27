@@ -56,64 +56,99 @@ COLUMN_MAPPING1 = {
 # LECTURA DE HOJA
 # =====================================================
 
-def process_excel(path: str, sheet_name: str, header_row: int = 5) -> pd.DataFrame:
-    """
-    Lee una hoja de Excel e identifica correctamente las filas verdes (theme=9, tint≈0.4).
-    """
-    from openpyxl import load_workbook
+from io import BytesIO
+from typing import Optional, List
+import pandas as pd
+from openpyxl import load_workbook
 
-    logger.info(f"🟢 Procesando hoja '{sheet_name}' de {path}")
+def process_excel(
+    excel_content: bytes, 
+    header_row: int = 5
+) -> Optional[pd.DataFrame]:
+    logger.info("Procesando archivo Excel desde contenido en memoria (todas las hojas)...")
 
-    wb = load_workbook(path, data_only=True, read_only=False, keep_vba=True)
-    ws = wb[sheet_name]
+    try:
+        excel_io = BytesIO(excel_content)
+        wb = load_workbook(excel_io, data_only=True, read_only=False, keep_vba=True)
+    except Exception as e:
+        logger.error(f"Error al cargar Excel desde bytes: {e}", exc_info=True)
+        return None
 
-    header_cells = list(ws[header_row])
-    headers = [str(c.value).strip() if c.value else f"col_{i}" for i, c in enumerate(header_cells)]
-    headers = [h.strip() for h in headers]
+    all_dfs = []  # aquí almacenaremos los DF por hoja
 
-    rows = []
-    current_series = None
-    start_row = header_row + 2
+    for sheet_name in wb.sheetnames:
+        logger.info(f"🟢 Procesando hoja '{sheet_name}'...")
 
-    for row_idx, row in enumerate(ws.iter_rows(min_row=start_row, max_col=len(header_cells)), start=start_row):
-        is_green = False
-        series_name = None
+        try:
+            ws = wb[sheet_name]
+        except KeyError:
+            logger.warning(f"La hoja '{sheet_name}' no se pudo abrir. Saltando.")
+            continue
 
-        for cell in row:
-            fill = cell.fill
-            pattern = getattr(fill, "patternType", None)
-            fg = getattr(fill, "fgColor", None)
+        # Extraer encabezados
+        header_cells = list(ws[header_row])
+        headers = [str(c.value).strip() if c.value else f"col_{i}" for i, c in enumerate(header_cells)]
 
-            # Detectar color verde según theme y tint
-            if (
-                pattern == "solid"
-                and getattr(fg, "type", None) == "theme"
-                and getattr(fg, "theme", None) == 9
-                and 0.38 < getattr(fg, "tint", 0.0) < 0.41
-            ):
-                is_green = True
-                if cell.value not in (None, '') and not series_name:
-                    series_name = str(cell.value).strip()
-                break
+        rows = []
+        current_series = None
+        start_row = header_row + 2
 
-        logger.debug(f"[{sheet_name}] Fila {row_idx}: is_green={is_green}, texto={series_name!r}")
+        for row_idx, row in enumerate(ws.iter_rows(min_row=start_row, max_col=len(header_cells)), start=start_row):
+            is_green = False
+            series_name = None
 
-        # Construir diccionario de la fila
-        values = [cell.value for cell in row]
-        row_dict = {headers[i]: values[i] if i < len(values) else None for i in range(len(headers))}
-        row_dict["is_green"] = is_green
+            for cell in row:
+                fill = cell.fill
+                pattern = getattr(fill, "patternType", None)
+                fg = getattr(fill, "fgColor", None)
 
-        # Asignar categoría a las filas siguientes
-        if is_green and series_name:
-            current_series = series_name
-            row_dict["category"] = series_name
-        elif current_series:
-            row_dict["category"] = current_series
+                if (
+                    pattern == "solid"
+                    and getattr(fg, "type", None) == "theme"
+                    and getattr(fg, "theme", None) == 9
+                    and 0.38 < getattr(fg, "tint", 0.0) < 0.41
+                ):
+                    is_green = True
+                    if cell.value not in (None, '') and not series_name:
+                        series_name = str(cell.value).strip()
+                    break
 
-        rows.append(row_dict)
+            values = [cell.value for cell in row]
+            row_dict = {headers[i]: values[i] if i < len(values) else None for i in range(len(headers))}
+            row_dict["is_green"] = is_green
 
-    logger.info(f"✅ Finalizada hoja '{sheet_name}' ({len(rows)} filas procesadas).")
-    return pd.DataFrame(rows)
+            if is_green and series_name:
+                current_series = series_name
+                row_dict["category"] = series_name
+            elif current_series:
+                row_dict["category"] = current_series
+
+            row_dict["sheet_name"] = sheet_name  # opcional: para mantener trazabilidad
+            rows.append(row_dict)
+
+        df_sheet = pd.DataFrame(rows)
+        logger.info(f"✅ Finalizada hoja '{sheet_name}' ({len(df_sheet)} filas procesadas).")
+        all_dfs.append(df_sheet)
+
+    if not all_dfs:
+        logger.warning("⚠ No se procesó ninguna hoja.")
+        return None
+
+    # Unir todas las hojas
+    df_total = pd.concat(all_dfs, ignore_index=True)
+
+    # Si estás usando el backend Keyter, aquí viene el siguiente paso:
+    try:
+        df_total = _process_dataframe(df_total)  # si aplica
+        df_total["id"] = range(1, len(df_total) + 1)
+        df_total = _add_default_columns(df_total)
+        df_total = df_total.reindex(columns=LIBRARY_COLUMNS)
+    except Exception as e:
+        logger.error(f"Error integrando DataFrame al formato Keyter: {e}", exc_info=True)
+        return None
+
+    return df_total
+
 
 # =====================================================
 # PROCESAMIENTO DE ARCHIVO COMPLETO
@@ -184,7 +219,7 @@ def _apply_column_mapping1(df: pd.DataFrame) -> pd.DataFrame:
             col_map[src] = dst
 
     # Igual para r/w o direction, pero sin convertir todo a minúsculas
-    for candidate in ["r/w", "direction"]:
+    for candidate in ["R/W", "direction"]:
         if candidate in df.columns:
             col_map[candidate] = "access_type"
 
@@ -257,6 +292,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         system_type = df['system_category'].astype(str).str.upper().str.strip()
         df.loc[only_read & system_type.isin(['ANALOG_INPUT', 'ANALOG_OUTPUT']), 'read'] = 3
         df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 1
+        df.loc[only_read & system_type.isin(['STATUS']), 'read'] = 4
         df.loc[rw & system_type.isin(['SET_POINT']), ['read', 'write']] = [3, 6]
         df.loc[rw & system_type.isin(['CONFIG_PARAMETER', 'COMMAND', 'DIGITAL_OUTPUT']), ['read', 'write']] = [1, 5]
         df.loc[rw & system_type.isin(['DIGITAL_INPUT']), 'read'] = 1

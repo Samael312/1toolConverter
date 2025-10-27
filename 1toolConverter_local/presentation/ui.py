@@ -19,7 +19,7 @@ class HTMLConverterUI:
 
     def __init__(self, process_html_callback):
         self.process_html_callback = process_html_callback
-
+        self.uploaded_file_name: Optional[str] = None
         self.pagination_main = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
         self.pagination_group = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
 
@@ -61,6 +61,9 @@ class HTMLConverterUI:
                 self.table_card.visible = False
             if self.group_table_card:
                 self.group_table_card.visible = False
+
+            self.uploaded_file_name = e.file.name  # Guarda el nombre del archivo
+
 
             ui.notify(f"Archivo '{e.file.name}' cargado correctamente.", type='positive')
 
@@ -289,7 +292,7 @@ class HTMLConverterUI:
 
         # Configurar tipo de archivo permitido
         if backend == 'Keyter':
-            file_accept = '.html'
+            file_accept = '.xlsx,.html'
         elif backend == 'iPro':
             file_accept = '.xlsx'
         else:
@@ -357,7 +360,7 @@ class HTMLConverterUI:
             self.upload_component.on_upload(self.handle_upload)
 
             if self.backend_selected == "Keyter":
-                self.upload_component.props('accept=".html"')
+                self.upload_component.props('accept=".xlsx",".html"')
             elif self.backend_selected == "iPro":
                 self.upload_component.props('accept=".xlsx"')
             else:
@@ -1003,7 +1006,24 @@ class HTMLConverterUI:
 
             # Actualizar processed_data para reflejar el cambio
             self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'system_category'] = new_group
+            
+            # Ajustar permisos read/write según la categoría
+            permission_map = {
+                'ALARM': (1, 0),
+                'STATUS': (4, 0),
+                'SET_POINT': (3, 6),
+                'CONFIG_PARAMETER': (1, 5),
+                'COMMAND': (1, 5),
+                'ANALOG_INPUT': (3, 0),
+                'ANALOG_OUTPUT': (3, 0),
+                'DIGITAL_INPUT': (1, 0),
+                'DIGITAL_OUTPUT': (1, 5)
+            }
 
+            if new_group in permission_map:
+                read_val, write_val = permission_map[new_group]
+                self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'read'] = read_val
+                self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'write'] = write_val
             # Construir dataframe de la fila actualizada
             selected_row_df = self.processed_data.loc[self.processed_data['id'].astype(str) == row_id].copy()
 
@@ -1014,7 +1034,7 @@ class HTMLConverterUI:
 
             if new_group == 'ALARM':
                 selected_row_df['view'] = np.nan
-                self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'view'] = np.nan
+                self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'view'] = 'simple'
 
             if selected_row_df.empty:
                 logger.debug(f'No se encontró fila con id {row_id} en processed_data')
