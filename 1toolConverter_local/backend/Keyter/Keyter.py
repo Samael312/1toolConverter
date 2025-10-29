@@ -107,6 +107,7 @@ def _process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = _apply_deep_classification(df)
     df = _apply_sampling_rules(df)
     df = _apply_view_rules(df)
+    df = _apply_specific_rules(df)
     return df
 
 
@@ -132,7 +133,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[only_read & system_type.isin(['ANALOG', 'INTEGER']), 'read'] = 4
         df.loc[only_read & system_type.isin(['DIGITAL']), 'read'] = 1
 
-        df.loc[rw & system_type.isin(['ANALOG', 'INTEGER']), ['read', 'write']] = [3, 16]
+        df.loc[rw & system_type.isin(['ANALOG', 'INTEGER']), ['read', 'write']] = [3, 6]
         df.loc[rw & system_type.isin(['DIGITAL']), ['read', 'write']] = [1, 5]
 
         df.drop(columns=['access_type'], inplace=True, errors='ignore')
@@ -161,6 +162,9 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     for col in ['minvalue', 'maxvalue']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    if 'description' in df.columns:
+        df['description'] = df['description'].astype(str).str.slice(0, 60)
 
     return df
 
@@ -274,8 +278,24 @@ def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
         'DEFAULT': 60,
         'COMMAND': 0,
         'STATUS': 60,
+        'CONFIG_PARAMETER': 0
     }
     df['sampling'] = df['system_category'].map(sampling).fillna(60)
+    return df
+
+def _apply_specific_rules(df: pd.DataFrame) -> pd.DataFrame:
+    is_readable = df['read'] > 0
+    rw = (df['read'] > 0) & (df['write'] > 0)
+
+    if 'system_category' in df.columns:
+        system_type = df['system_category'].astype(str).str.upper().str.strip()
+        df.loc[is_readable & system_type.isin(['ANALOG_INPUT', 'ANALOG_OUTPUT', 'SYSTEM']), 'read'] = 3
+        df.loc[is_readable & system_type.isin(['ALARM']), 'read'] = 1
+        df.loc[is_readable & system_type.isin(['STATUS']), 'read'] = 4
+        df.loc[is_readable & system_type.isin(['COMMAND']), ['read', 'write']] = [0, 6]
+        df.loc[rw & system_type.isin(['SET_POINT']), ['read', 'write']] = [3, 6]
+        df.loc[rw & system_type.isin(['CONFIG_PARAMETER', 'DIGITAL_OUTPUT']), ['read', 'write']] = [1, 5]
+        df.loc[rw & system_type.isin(['DIGITAL_INPUT']), 'read'] = 1
     return df
 
 

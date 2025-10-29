@@ -266,6 +266,9 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     for col in ['minvalue', 'maxvalue']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    if 'description' in df.columns:
+        df['description'] = df['description'].astype(str).str.slice(0, 60)
 
     return df
 
@@ -293,8 +296,9 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[only_read & system_type.isin(['ANALOG_INPUT', 'ANALOG_OUTPUT', 'SYSTEM']), 'read'] = 3
         df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 1
         df.loc[only_read & system_type.isin(['STATUS']), 'read'] = 4
+        df.loc[only_read & system_type.isin(['COMMAND']), ['read', 'write']] = [0, 6]
         df.loc[rw & system_type.isin(['SET_POINT']), ['read', 'write']] = [3, 6]
-        df.loc[rw & system_type.isin(['CONFIG_PARAMETER', 'COMMAND', 'DIGITAL_OUTPUT']), ['read', 'write']] = [1, 5]
+        df.loc[rw & system_type.isin(['CONFIG_PARAMETER','DIGITAL_OUTPUT']), ['read', 'write']] = [1, 5]
         df.loc[rw & system_type.isin(['DIGITAL_INPUT']), 'read'] = 1
 
     return df
@@ -337,7 +341,7 @@ def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
-    mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 60, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0}
+    mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 60, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0, "CONFIG_PARAMETER":0}
     df["sampling"] = df["system_category"].map(mapping).fillna(60)
     return df
 
