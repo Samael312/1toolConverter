@@ -290,7 +290,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
 
     if 'system_category' in df.columns:
         system_type = df['system_category'].astype(str).str.upper().str.strip()
-        df.loc[only_read & system_type.isin(['ANALOG_INPUT', 'ANALOG_OUTPUT']), 'read'] = 3
+        df.loc[only_read & system_type.isin(['ANALOG_INPUT', 'ANALOG_OUTPUT', 'SYSTEM']), 'read'] = 3
         df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 1
         df.loc[only_read & system_type.isin(['STATUS']), 'read'] = 4
         df.loc[rw & system_type.isin(['SET_POINT']), ['read', 'write']] = [3, 6]
@@ -310,7 +310,7 @@ def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
         'CONFIG_PARAMETER': '16bit/s16',
         'ANALOG_OUTPUT': '16bit/s16',
         'DIGITAL_OUTPUT': '1bit',
-        'SYSTEM': '1bit'
+        'SYSTEM': '16bit'
     }
 
     df["length"] = None
@@ -337,7 +337,7 @@ def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
-    mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 60, "COMMAND": 0, "STATUS": 60}
+    mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 60, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0}
     df["sampling"] = df["system_category"].map(mapping).fillna(60)
     return df
 
@@ -350,7 +350,8 @@ def _apply_view_rules(df: pd.DataFrame) -> pd.DataFrame:
         'DEFAULT': "simple",
         'COMMAND': "simple",
         'STATUS': "basic",
-        'CONFIG_PARAMETER': "simple"
+        'CONFIG_PARAMETER': "simple",
+        'SYSTEM': 'simple'
     }
     df['view'] = df['system_category'].map(view).fillna('simple')
     return df

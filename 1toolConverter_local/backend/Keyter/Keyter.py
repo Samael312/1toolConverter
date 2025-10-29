@@ -132,7 +132,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[only_read & system_type.isin(['ANALOG', 'INTEGER']), 'read'] = 4
         df.loc[only_read & system_type.isin(['DIGITAL']), 'read'] = 1
 
-        df.loc[rw & system_type.isin(['ANALOG', 'INTEGER']), ['read', 'write']] = [3, 6]
+        df.loc[rw & system_type.isin(['ANALOG', 'INTEGER']), ['read', 'write']] = [3, 16]
         df.loc[rw & system_type.isin(['DIGITAL']), ['read', 'write']] = [1, 5]
 
         df.drop(columns=['access_type'], inplace=True, errors='ignore')

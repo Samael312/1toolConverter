@@ -109,7 +109,7 @@ class HTMLConverterUI:
             # --- Detectar filas ya clasificadas ---
             valid_groups1 = [
                 'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS'
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
             ]
 
             valid_groups2 = [
@@ -425,7 +425,7 @@ class HTMLConverterUI:
                 self.category_filter = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS'
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'
                     ],
                     multiple=True,
                     label='Selecciona grupos',
@@ -454,7 +454,7 @@ class HTMLConverterUI:
             v-model="props.row.system_category"
             :options="[
                 'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS'
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
             ]"
             dense filled outlined emit-value map-options
             @update:model-value="$parent.$emit('estado-change', props.row)"
@@ -480,7 +480,8 @@ class HTMLConverterUI:
                             'ANALOG_OUTPUT': '#13662C',
                             'DIGITAL_INPUT': 'blue',
                             'DIGITAL_OUTPUT': 'black',
-                            'STATUS': '#B8B302'
+                            'STATUS': '#1F6E6E',
+                            'SYSTEM': '#C6B132'
                         }[props.row.system_category] || 'grey')
                     }">
                         {{ props.row.system_category.charAt(0) }}
@@ -539,7 +540,7 @@ class HTMLConverterUI:
                 self.group_selector = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS'
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
                     ],
                     label='Asignar a grupo',
                 ).props('dense')
@@ -578,7 +579,7 @@ class HTMLConverterUI:
                 self.group_category_filter = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS'
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'
                     ],
                     multiple=True,
                     label='Selecciona grupos',
@@ -1017,7 +1018,8 @@ class HTMLConverterUI:
                 'ANALOG_INPUT': (3, 0),
                 'ANALOG_OUTPUT': (3, 0),
                 'DIGITAL_INPUT': (1, 0),
-                'DIGITAL_OUTPUT': (1, 5)
+                'DIGITAL_OUTPUT': (1, 5),
+                'SYSTEM': (3, 0)
             }
 
             if new_group in permission_map:
