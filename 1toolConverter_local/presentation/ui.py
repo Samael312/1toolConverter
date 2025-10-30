@@ -540,6 +540,40 @@ class HTMLConverterUI:
             # Registrar el manejador del evento emitido desde el slot
             self.table.on('view-change', self.handle_view_change)
 
+            # --- Edición emergente (popup) para la columna "description" ---
+            self.table.add_slot('body-cell-description', '''
+                   <q-td key="description" :props="props">
+  <div class="cursor-pointer">
+    <span>{{ props.row.description || '— (sin descripción)' }}</span>
+
+    <q-popup-edit
+      v-model="props.row.description"
+      buttons
+      label="Editar descripción"
+      persistent
+      @update:model-value="$parent.$emit('description-change', props.row)"
+    >
+      <q-input
+        v-model="props.row.description"
+        type="text"
+        dense
+        outlined
+        autofocus
+        counter
+        maxlength="150"
+        placeholder="Escribe la descripción..."
+      />
+    </q-popup-edit>
+  </div>
+</q-td>
+
+
+''')
+
+
+
+            self.table.on('description-change', self.handle_description_change)
+
             # --- Controles debajo de la tabla ---
             with ui.row().classes('mt-4 items-center gap-4'):
                 self.group_selector = ui.select(
@@ -1164,3 +1198,77 @@ class HTMLConverterUI:
             self.group_table.rows = self.grouped_data.to_dict('records')
             self.group_table.update()
         ui.notify("Filtro de búsqueda reiniciado.", type='info', timeout=1.5)
+
+    def handle_description_change(self, e):
+        """Sincroniza toda la fila editada (no solo la descripción) entre tabla, processed_data y grouped_data."""
+        try:
+            args = getattr(e, 'args', e)
+            if isinstance(args, dict):
+                row = args
+            elif isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
+                row = args[0]
+            else:
+                logger.debug("Evento description-change sin datos válidos")
+                return
+
+            # 🆔 Identificar fila
+            row_id = str(row.get('id'))
+            if not row_id or self.processed_data is None or self.processed_data.empty:
+                return
+
+            # -------------------------------------------------------
+            # 🔹 1. Actualizar toda la fila en processed_data
+            # -------------------------------------------------------
+            for col in self.processed_data.columns:
+                if col in row:
+                    self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, col] = row[col]
+
+            # -------------------------------------------------------
+            # 🔹 2. Si la fila pertenece a grouped_data, actualizarla también
+            # -------------------------------------------------------
+            if self.grouped_data is not None and not self.grouped_data.empty:
+                mask = self.grouped_data['id'].astype(str) == row_id
+                if mask.any():
+                    for col in self.grouped_data.columns:
+                        if col in row:
+                            self.grouped_data.loc[mask, col] = row[col]
+                else:
+                    # Si no existía, añadirla (solo si tiene categoría asignada)
+                    if row.get('system_category'):
+                        new_row_df = pd.DataFrame([{
+                            col: row.get(col, np.nan) for col in self.grouped_data.columns
+                        }])
+                        self.grouped_data = pd.concat([self.grouped_data, new_row_df], ignore_index=True)
+            else:
+                # Si grouped_data está vacío, inicializar con la fila si está clasificada
+                if row.get('system_category'):
+                    self.grouped_data = pd.DataFrame([{
+                        col: row.get(col, np.nan) for col in self.processed_data.columns
+                    }])
+
+            # -------------------------------------------------------
+            # 🔹 3. Actualizar visualmente la fila en la tabla principal
+            # -------------------------------------------------------
+            if self.table and self.table.rows:
+                for r in self.table.rows:
+                    if str(r.get('id')) == row_id:
+                        r.update(row)  # Actualiza todos los campos de la fila
+                        break
+                self.table.update()
+
+            # -------------------------------------------------------
+            # 🔹 4. Y en la tabla de grupos (si aplica)
+            # -------------------------------------------------------
+            if self.group_table and self.group_table.rows:
+                for r in self.group_table.rows:
+                    if str(r.get('id')) == row_id:
+                        r.update(row)
+                        break
+                self.group_table.update()
+
+            ui.notify(f"Fila {row_id} actualizada correctamente.", type='positive', timeout=1.5)
+
+        except Exception as ex:
+            import traceback
+            logger.error(traceback.format_exc())
+            ui.notify(f"Error actualizando fila: {ex}", type='negative')
