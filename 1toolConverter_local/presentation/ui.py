@@ -109,7 +109,8 @@ class HTMLConverterUI:
             # --- Detectar filas ya clasificadas ---
             valid_groups1 = [
                 'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS',
+                #'SYSTEM'
             ]
 
             valid_groups2 = [
@@ -254,7 +255,7 @@ class HTMLConverterUI:
                 ui.label('0. Seleccionar Backend').classes('text-lg font-bold')
                 ui.separator()
                 self.backend_selector = ui.select(
-                    options=['Keyter', 'iPro'],
+                    options=['Keyter', 'iPro', 'Cefa'],
                     label='Selecciona el backend',
                     on_change=self.handle_backend_selection
                 ).props('outlined dense clearable').classes('w-64')
@@ -295,6 +296,8 @@ class HTMLConverterUI:
             file_accept = '.xlsx,.html'
         elif backend == 'iPro':
             file_accept = '.xlsx'
+        elif backend == 'Cefa':
+            file_accept = '.pdf'
         else:
             file_accept = ''
 
@@ -363,6 +366,8 @@ class HTMLConverterUI:
                 self.upload_component.props('accept=".xlsx",".html"')
             elif self.backend_selected == "iPro":
                 self.upload_component.props('accept=".xlsx"')
+            elif self.backend_selected == "Cefa":
+                self.upload_component.props('accept=".pdf"')
             else:
                 self.upload_component.disable()
 

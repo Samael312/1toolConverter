@@ -10,7 +10,6 @@ import re
 import logging
 from io import BytesIO
 from typing import Optional, List
-from pathlib import Path
 
 # =====================================================
 # CONFIGURACIÓN DE LOGGING
@@ -64,7 +63,10 @@ def extract_min_max_from_dimension(value: str):
 
 
 def expand_dimension_to_rows_name_bits(df, default_bits=1):
-    """Expande variables con dimension [min..max] en filas hijas."""
+    """
+    Expande variables con dimension [min..max] en filas hijas (sin tocar IDs).
+    Las hijas tendrán registers consecutivos al del padre.
+    """
     new_rows = []
     for _, row in df.iterrows():
         if 'dimension' in row and pd.notna(row['dimension']):
@@ -72,20 +74,40 @@ def expand_dimension_to_rows_name_bits(df, default_bits=1):
             if not np.isnan(min_val) and not np.isnan(max_val):
                 n = int(max_val - min_val + 1)
                 total_bits = n * default_bits
-                row['length'] = total_bits  # padre
+
+                # Fila padre
+                row['length'] = total_bits
                 new_rows.append(row)
-                # Hijas
+
+                # Base register
+                base_register = np.nan
+                if 'register' in row and pd.notna(row['register']):
+                    try:
+                        base_register = int(row['register'])
+                    except:
+                        base_register = np.nan
+
+                # Hijas (register consecutivo)
                 for offset in range(n):
-                    new_row = row.copy()
                     pos = int(min_val + offset)
+                    new_row = row.copy()
                     new_row['name'] = f"{row['name']}_{pos}"
-                    new_row['length'] = default_bits
+                    new_row['length'] = f"{default_bits}bit"
                     new_row['description'] = f"{row['name']} - Posición {pos}"
+
+                    # Si el padre tiene register válido → consecutivo
+                    if not np.isnan(base_register):
+                        new_row['register'] = base_register + offset + 1
+
                     new_rows.append(new_row)
                 continue
-        row['length'] = default_bits
+
+        # Sin dimensión → fila normal
+        row['length'] = f"{default_bits}bit"
         new_rows.append(row)
+
     return pd.DataFrame(new_rows)
+
 
 # =====================================================
 # FUNCIÓN PRINCIPAL DE PROCESAMIENTO
@@ -137,11 +159,14 @@ def convert_excel_to_dataframe(file_bytes: bytes) -> Optional[pd.DataFrame]:
                 df['register'] = df['register'].apply(register_to_decimal)
 
             # ------------------------------------------------
-            # Expansión de dimensiones
+            # Expansión de dimensiones (sin IDs aún)
             # ------------------------------------------------
             if 'dimension' in df.columns:
                 df = expand_dimension_to_rows_name_bits(df, default_bits=1)
                 df.drop(columns=['dimension'], inplace=True, errors='ignore')
+            
+            if 'description' in df.columns:
+                df['description'] = df['description'].astype(str).str.slice(0, 60)
 
             # ------------------------------------------------
             # Categorización del sistema
@@ -164,21 +189,62 @@ def convert_excel_to_dataframe(file_bytes: bytes) -> Optional[pd.DataFrame]:
                 continue
 
             # ------------------------------------------------
+            # Valores min y max según system_category
+            # ------------------------------------------------
+            df["minvalue"] = 0
+            df["maxvalue"] = 0
+
+            df.loc[df["system_category"] == "COMMAND", ["minvalue", "maxvalue"]] = [0, 1]
+            df.loc[df["system_category"] == "CONFIG_PARAMETER", ["minvalue", "maxvalue"]] = [0, 1]
+            df.loc[df["system_category"] == "ALARM", ["minvalue", "maxvalue"]] = [0, 1]
+
+            # ------------------------------------------------
             # Permisos de lectura/escritura
             # ------------------------------------------------
             df['read'] = 0
             df['write'] = 0
+
             if 'attribute' in df.columns:
                 attr = df['attribute'].str.upper().str.strip()
                 df.loc[attr == 'READ', ['read', 'write']] = [3, 0]
                 df.loc[attr == 'READWRITE', ['read', 'write']] = [3, 6]
                 df.loc[attr == 'WRITE', ['read', 'write']] = [0, 6]
 
+            if 'system_category' in df.columns:
+                system_type = df['system_category'].astype(str).str.upper().str.strip()
+                only_read = (df['read'] > 0) & (df['write'] == 0)
+                rw = (df['read'] > 0) & (df['write'] > 0)
+                df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 1
+                df.loc[only_read & system_type.isin(['STATUS']), 'read'] = 4
+                df.loc[rw & system_type.isin(['COMMAND']), ['read', 'write']] = [3, 6]
+                df.loc[rw & system_type.isin(['CONFIG_PARAMETER']), ['read', 'write']] = [1, 5]
+
+            # ------------------------------------------------
+            # Normalización de longitud según potencias de 2 válidas (1, 2, 4, 8, 16bit)
+            # ------------------------------------------------
+            if 'length' in df.columns:
+                def normalize_length(val):
+                    try:
+                        if isinstance(val, str):
+                            num = re.findall(r'\d+', val)
+                            length = int(num[0]) if num else 1
+                        else:
+                            length = int(val)
+                    except Exception:
+                        length = 1
+
+                    valid_sizes = [1, 2, 4, 8, 16]
+                    valid_match = max([v for v in valid_sizes if v <= length], default=1)
+                    return f"{valid_match}bit"
+
+                df['length'] = df['length'].apply(normalize_length)
+
             # ------------------------------------------------
             # Valores y columnas básicas
             # ------------------------------------------------
             df['sampling'] = 60
-            df['unit'] = 0
+            df['unit'] = df.get('unit', np.nan)
+            df['unit'] = df['unit'].replace({np.nan: "", "nan": ""})
             df['offset'] = 0.0
 
             processed_dfs.append(df)
@@ -191,14 +257,18 @@ def convert_excel_to_dataframe(file_bytes: bytes) -> Optional[pd.DataFrame]:
         logger.warning("No se procesaron hojas válidas en el Excel.")
         return None
 
+    # =====================================================
+    # UNIFICACIÓN Y LIMPIEZA FINAL
+    # =====================================================
     final_df = pd.concat(processed_dfs, ignore_index=True)
-    num_rows = len(final_df)
-    final_df["id"] = range(1, num_rows + 1)
+    final_df = final_df[pd.to_numeric(final_df["register"], errors="coerce").notna()].copy()
+    final_df["register"] = final_df["register"].astype(int)
+    final_df["id"] = range(1, len(final_df) + 1)
     final_df["view"] = "simple"
 
-    # ------------------------------------------------
+    # =====================================================
     # Columnas por defecto y orden final
-    # ------------------------------------------------
+    # =====================================================
     defaults = {
         "addition": 0,
         "mask": 0,

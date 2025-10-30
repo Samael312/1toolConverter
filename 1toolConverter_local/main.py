@@ -8,6 +8,7 @@ import logging
 from backend.Keyter.KeyterNew import process_excel as keyter_new_process
 from backend.Keyter.Keyter import process_html as keyter_html_process
 from backend.ipro import convert_excel_to_dataframe as ipro_convert_excel
+from backend.cefa import process_pdf as cefa_process_pdf
 from presentation.ui import HTMLConverterUI
 
 # =====================================================
@@ -41,6 +42,10 @@ def unified_process_file(mode: str, filename: str, file_bytes: bytes):
         elif mode == "iPro":
             logger.info("Procesando archivo Excel con backend iPro")
             return ipro_convert_excel(file_bytes)
+        
+        elif mode == "Cefa":
+            logger.info("Procesando archivo PDF con backend Cefa")
+            return cefa_process_pdf(file_bytes)
 
         else:
             ui.notify("Modo no reconocido", type='warning')
