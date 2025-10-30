@@ -24,10 +24,10 @@ LIBRARY_COLUMNS = [
 
 COLUMN_MAPPING_PDF = {
     "DIRECCION": "register",
-    "DIRECCIÓN": "register",   # añadido para variantes
+    "DIRECCIÓN": "register",
     "Nombre": "name",
     "Longitud Word Dato": "length",
-    "Longitud\nWord Dato": "length",  # añadido para saltos de línea
+    "Longitud\nWord Dato": "length",
     "Valores": "description"
 }
 
@@ -37,7 +37,7 @@ DEFAULT_VALUES = {
     "view": "basic",
     "sampling": 60,
     "read": 0,
-    "write": 0,
+    "write": "",
     "minvalue": 0,
     "maxvalue": 0,
     "unit": "",
@@ -60,6 +60,58 @@ DEFAULT_VALUES = {
 }
 
 # ====================================================
+# Nueva función de propagación de contexto con duplicados ID
+# ====================================================
+def propagate_context(df: pd.DataFrame) -> pd.DataFrame:
+    logger.info("Propagando categorías basadas en duplicados de 'register' y eliminando los primeros duplicados...")
+
+    # Normalizar columnas
+    df["register"] = df["register"].astype(str).str.strip()
+    df["name"] = df["name"].astype(str).str.strip()
+
+    # Diccionarios auxiliares
+    seen_registers = set()
+    first_names = {}
+    current_category = "DEFAULT"
+    categories = []
+    first_duplicate_indexes = []  # para marcar los primeros duplicados que luego se eliminarán
+
+    for idx, row in df.iterrows():
+        reg = row.get("register", "").strip()
+        name = row.get("name", "").strip()
+
+        if not reg:
+            categories.append(current_category)
+            continue
+
+        # Si es la primera vez que aparece este register
+        if reg not in first_names:
+            first_names[reg] = name.replace(" ", "_")
+            seen_registers.add(reg)
+            categories.append(current_category)
+            continue
+
+        # Si este register ya apareció antes, se inicia un nuevo grupo
+        if reg in seen_registers:
+            current_category = first_names[reg]
+            # Registrar el índice de la primera aparición para borrarlo después
+            first_index = df.index[df["register"] == reg][0]
+            if first_index not in first_duplicate_indexes:
+                first_duplicate_indexes.append(first_index)
+
+        categories.append(current_category)
+
+    df["category"] = categories
+
+    # Eliminar los primeros duplicados que sirvieron como encabezados de grupo
+    df = df.drop(index=first_duplicate_indexes).reset_index(drop=True)
+
+    logger.info(f"✅ Categorías propagadas y eliminadas {len(first_duplicate_indexes)} filas de encabezado de grupo.")
+    return df
+
+
+
+# ====================================================
 # Función principal de procesamiento
 # ====================================================
 def process_pdf(pdf_content: bytes) -> pd.DataFrame:
@@ -70,8 +122,7 @@ def process_pdf(pdf_content: bytes) -> pd.DataFrame:
     # 1️⃣ Extraer todas las tablas del PDF
     with pdfplumber.open(pdf_io) as pdf:
         for pagina in pdf.pages:
-            page_tables = pagina.extract_tables()
-            for tabla in page_tables:
+            for tabla in pagina.extract_tables():
                 df = pd.DataFrame(tabla)
                 if not df.empty:
                     tablas.append(df)
@@ -80,15 +131,14 @@ def process_pdf(pdf_content: bytes) -> pd.DataFrame:
         logger.warning("No se encontraron tablas válidas en el PDF.")
         return pd.DataFrame(columns=LIBRARY_COLUMNS)
 
-    # 2️⃣ Concatenar todas las tablas antes de hacer limpieza
+    # 2️⃣ Concatenar todas las tablas antes de limpiar
     df = pd.concat(tablas, ignore_index=True)
     logger.info(f"Concatenadas {len(tablas)} tablas con {len(df)} filas totales.")
 
-    # 3️⃣ Capturar y limpiar encabezados de la primera fila
+    # 3️⃣ Encabezados
     raw_headers = list(df.iloc[0])
     clean_headers = [(h if h is not None else "").strip() for h in raw_headers]
 
-    # Evitar duplicados en encabezados
     seen = {}
     final_headers = []
     for h in clean_headers:
@@ -99,42 +149,30 @@ def process_pdf(pdf_content: bytes) -> pd.DataFrame:
             seen[h] += 1
             final_headers.append(f"{h}_{seen[h]}")
 
-    logger.info(f"Encabezados detectados: {final_headers}")
-
-    # 4️⃣ Asignar los encabezados y eliminar filas iniciales (solo una vez)
     df.columns = final_headers
-    df = df.drop(index=[0, 1, 2, 3, 4], errors='ignore').reset_index(drop=True)
+    df = df.drop(index=[0, 1, 2], errors="ignore").reset_index(drop=True)
 
-    # 5️⃣ Aplicar mapeo de columnas
-    mapped, unmapped = {}, []
-    for h in final_headers:
-        if h in COLUMN_MAPPING_PDF:
-            mapped[h] = COLUMN_MAPPING_PDF[h]
-        else:
-            unmapped.append(h)
-
-    if mapped:
-        logger.info(f"Mapeos aplicados: {mapped}")
-    if unmapped:
-        logger.info(f"Columnas sin mapeo: {unmapped}")
-
+    # 4️⃣ Mapeo de columnas
     df = df.rename(columns=COLUMN_MAPPING_PDF)
 
-    # 6️⃣ Limpieza de datos
+    # 5️⃣ Limpieza
     for col in ["minvalue", "maxvalue", "offset"]:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     for col in ["register", "name", "description", "unit"]:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
 
-    # 7️⃣ Añadir columnas faltantes con valores por defecto
+    # 6️⃣ Aplicar propagación jerárquica
+    df = propagate_context(df)
+
+    # 7️⃣ Añadir columnas faltantes
     for col in LIBRARY_COLUMNS:
         if col not in df.columns:
             df[col] = DEFAULT_VALUES.get(col, "")
 
-    # 8️⃣ Asignar IDs y reordenar columnas
+    # 8️⃣ Asignar IDs y reordenar
     df["id"] = range(1, len(df) + 1)
     df = df.reindex(columns=LIBRARY_COLUMNS)
 
