@@ -207,6 +207,9 @@ class HTMLConverterUI:
 
             if 'category' in df_to_export.columns:
                 df_to_export['category'] = np.nan
+            
+            if 'category' in df_to_export.columns:
+                df_to_export['id']=np.nan
 
             with NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
                 with pd.ExcelWriter(tmp.name, engine='openpyxl') as writer:

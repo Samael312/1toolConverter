@@ -7,8 +7,8 @@ import os
 import logging
 from backend.Keyter.KeyterNew import process_excel as keyter_new_process
 from backend.Keyter.Keyter import process_html as keyter_html_process
-from backend.ipro import convert_excel_to_dataframe as ipro_convert_excel
-from backend.cefa import process_pdf as cefa_process_pdf
+from backend.iPro.ipro import convert_excel_to_dataframe as ipro_convert_excel
+from backend.Cefa.cefa import process_pdf as cefa_process_pdf
 from presentation.ui import HTMLConverterUI
 
 # =====================================================
