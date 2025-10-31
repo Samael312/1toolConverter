@@ -239,7 +239,7 @@ def adjust_system_category(df: pd.DataFrame) -> pd.DataFrame:
     logger.info(f"{total_com} filas marcadas como COMMAND en 'system_category'.")
 
     # --- 1️⃣ Detectar y marcar config_parammeter ---
-    mask_pa = df["name"].astype(str).str.upper().str.startswith(("P_", "NIVEL"), na=False)
+    mask_pa = df["name"].astype(str).str.upper().str.startswith(("P_", "NIVEL", "RESERVA","TPO", "AJUSTE", "OFFSET"), na=False)
     total_pa = mask_pa.sum()
     df.loc[mask_pa, "system_category"] = "CONFIG_PARAMETER"
     logger.info(f"{total_pa} filas marcadas como CONFIG_PARAMMETER en 'system_category'.")
@@ -259,8 +259,8 @@ def adjust_system_category(df: pd.DataFrame) -> pd.DataFrame:
 
         # Mapeo de categorías
         mapping = {
-            'ANALOGICAS': 'ANALOG_INPUT_OUTPUT',
-            'CONTROL_EQUIPOS': 'COMMAND',
+            'ANALOGICAS': 'ANALOG_OUTPUT',
+            'CONTROL_EQUIPOS': 'DIGITAL_OUTPUT',
             'ESTADO_EQUIPOS': 'STATUS',
         }
 
@@ -328,9 +328,10 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[system_type == "ALARM", "read"] = 1
         df.loc[system_type == "STATUS", "read"] = 4
         df.loc[system_type == "COMMAND", ["read", "write"]] = [0, 6]
+        df.loc[system_type == "DIGITAL_OUTPUT", ["read", "write"]] = [1, 5]
         df.loc[system_type == "SET_POINT", ["read", "write"]] = [3, 6]
         df.loc[system_type == "CONFIG_PARAMETER", ["read", "write"]] = [1, 5]
-        df.loc[system_type == "ANALOG_INPUT_OUTPUT", "read"] = 3
+        df.loc[system_type == "ANALOG_OUTPUT", "read"] = 3
         df.loc[system_type == "SYSTEM", ["read", "write"]] = [3, 0]
 
     # === 3️⃣ Limpieza y conversión segura ===
@@ -340,7 +341,84 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("✅ Permisos de acceso procesados correctamente.")
     return df
 
+def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
+    
+    # --- 0️⃣ Validación general ---
+    if "system_category" in df.columns:
+        system_type = df["system_category"].astype(str).str.upper().str.strip()
 
+        # Corrige: comparación múltiple debe hacerse con isin()
+        mask_digital = system_type.isin(["DIGITAL_OUTPUT", "STATUS"])
+        df.loc[mask_digital, ["minvalue", "maxvalue"]] = [0, 1]
+
+    # --- 1️⃣ Detectar y marcar alarmas ---
+    mask_alarm = df["category"].astype(str).str.upper().str.startswith("AL", na=False)
+    total_alarms = mask_alarm.sum()
+    df.loc[mask_alarm, ["minvalue", "maxvalue"]] = [0, 1]
+
+    # --- 2️⃣ Detectar y marcar command ---
+    mask_command = df["name"].astype(str).str.upper().str.startswith(("CONTROL", "RESET"), na=False)
+    total_com = mask_command.sum()
+    df.loc[mask_command, ["minvalue", "maxvalue"]] = [0, 1]
+
+    # --- 3️⃣ Detectar y marcar ANALOG_OUTPUT ---
+    mask_analog_output = df["system_category"].astype(str).str.upper().eq("ANALOG_OUTPUT")
+
+    # Si empieza con TEMP → [-270, 270]
+    mask_temp = mask_analog_output & df["name"].astype(str).str.upper().str.startswith("TEMP", na=False)
+    df.loc[mask_temp, ["minvalue", "maxvalue"]] = [-270, 270]
+
+    # Si es ANALOG_OUTPUT pero no empieza con TEMP → [0, 9999]
+    mask_analog_other = mask_analog_output & ~df["name"].astype(str).str.upper().str.startswith("TEMP", na=False)
+    df.loc[mask_analog_other, ["minvalue", "maxvalue"]] = [0, 9999]
+
+    # --- 4️⃣ Detectar y marcar CONFIG_PARAMETER ---
+    mask_pa = df["system_category"].astype(str).str.upper().eq("CONFIG_PARAMETER")
+
+    # NIVEL → [0, 100]
+    mask_ni = mask_pa & df["name"].astype(str).str.upper().str.startswith("NIVEL", na=False)
+    df.loc[mask_ni, ["minvalue", "maxvalue"]] = [0, 100]
+
+    # P_, RESERVA, TPO, AJUSTE, OFFSET → [0, 9999]
+    mask_p_re_tpo = mask_pa & df["name"].astype(str).str.upper().str.startswith(
+        ("P_", "RESERVA", "TPO", "AJUSTE", "OFFSET"), na=False
+    )
+    df.loc[mask_p_re_tpo, ["minvalue", "maxvalue"]] = [0, 9999]
+
+    # --- 5️⃣ Detectar y marcar set_point ---
+    mask_sp = df["name"].astype(str).str.upper().str.startswith("SP", na=False)
+    mask_cg = df["name"].astype(str).str.upper().str.startswith("CONSIGNA", na=False)
+    total_SP = mask_sp.sum() + mask_cg.sum()
+    df.loc[mask_sp | mask_cg, ["minvalue", "maxvalue"]] = [0, 9999]
+
+    return df
+
+def _apply_unit_rules(df: pd.DataFrame) -> pd.DataFrame:
+    
+    # --- 0️⃣ Validación general ---
+    if "system_category" not in df.columns or "name" not in df.columns:
+        return df
+
+    system_type = df["system_category"].astype(str).str.upper().str.strip()
+    name_upper = df["name"].astype(str).str.upper().str.strip()
+
+    # --- 1️⃣ Detectar y marcar ANALOG_OUTPUT ---
+    mask_analog_output = system_type.eq("ANALOG_OUTPUT")
+
+    # --- 2️⃣ Asignar unidades según el tipo ---
+    # PRESION → bar
+    mask_presion = mask_analog_output & name_upper.str.contains("PRESION", na=False)
+    df.loc[mask_presion, "unit"] = "bar"
+
+    # TEMP → ºC
+    mask_temp = mask_analog_output & name_upper.str.contains("TEMP", na=False)
+    df.loc[mask_temp, "unit"] = "ºC"
+
+    # CAUDALIMETRO → m3/s
+    mask_caudal = mask_analog_output & name_upper.str.contains("CAUDALIMETRO", na=False)
+    df.loc[mask_caudal, "unit"] = "m3/s"
+
+    return df
 
 # ====================================================
 # Función principal
@@ -394,6 +472,8 @@ def process_pdf(pdf_content: bytes) -> pd.DataFrame:
     df = _apply_view_rules(df)
     df = _apply_sampling_rules(df)
     df = _process_access_permissions(df)
+    df = _apply_range_rules(df)
+    df = _apply_unit_rules(df)
 
     for col in LIBRARY_COLUMNS:
         if col not in df.columns:
