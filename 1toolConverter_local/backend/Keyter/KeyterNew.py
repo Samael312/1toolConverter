@@ -15,6 +15,7 @@ import logging
 import pandas as pd
 import numpy as np
 from openpyxl import load_workbook
+import json
 
 # =====================================================
 # CONFIGURACIÓN DE LOGGING
@@ -208,6 +209,8 @@ def _process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = _apply_sampling_rules(df)
     df = _apply_view_rules(df)
     df = _apply_localization(df)
+    df = _apply_system_configuratiom(df)
+    df = _apply_range_rules(df)
     df.dropna(how="all", inplace=True)
     return df
 
@@ -257,7 +260,6 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
         df = df[~df['system_category'].isin(['NONE', '','NAN', None])].copy()
     
         df.loc[df['system_category'] == 'SET_POINT', 'offset'] = 0.1
-        df.loc[df['system_category'] != 'SET_POINT', 'offset'] = 0.0
     
     if 'name' in df.columns:
         df['name'] = df['name'].astype(str).str.upper().str.strip()
@@ -269,6 +271,35 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     
     if 'description' in df.columns:
         df['description'] = df['description'].astype(str).str.slice(0, 60)
+
+    return df
+
+def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
+    """Corrige valores fuera del rango [-32767, 32767] y marca los ajustes realizados."""
+    
+    # --- 0️⃣ Validación general ---
+    if "system_category" in df.columns:
+        df["system_category"] = df["system_category"].astype(str).str.upper().str.strip()
+        system_type = df["system_category"]
+    else:
+        system_type = pd.Series([], dtype=str)
+
+    # --- 1️⃣ Aplicar corrección de rango ---
+    if "value" in df.columns:
+        # Guardar valor original (opcional)
+        df["original_value"] = df["value"]
+        
+        # Limitar valores al rango permitido
+        df["value"] = df["value"].clip(lower=-32767, upper=32767)
+        
+        # Indicar si fue corregido
+        df["range_check"] = np.where(
+            df["original_value"].between(-32767, 32767, inclusive="both"),
+            "OK",
+            "Valor corregido al límite [-32767 ~ 32767]"
+        )
+    else:
+        df["range_check"] = "Columna 'value' no encontrada"
 
     return df
 
@@ -296,7 +327,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[only_read & system_type.isin(['ANALOG_INPUT', 'ANALOG_OUTPUT', 'SYSTEM']), 'read'] = 3
         df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 1
         df.loc[only_read & system_type.isin(['STATUS']), 'read'] = 4
-        df.loc[only_read & system_type.isin(['COMMAND']), ['read', 'write']] = [0, 6]
+        df.loc[only_read & system_type.isin(['COMMAND']), 'write'] = 6
         df.loc[rw & system_type.isin(['SET_POINT']), ['read', 'write']] = [3, 6]
         df.loc[rw & system_type.isin(['CONFIG_PARAMETER','DIGITAL_OUTPUT']), ['read', 'write']] = [1, 5]
         df.loc[rw & system_type.isin(['DIGITAL_INPUT']), 'read'] = 1
@@ -334,11 +365,36 @@ def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
+    
     if "system_category" not in df.columns:
         df["system_category"] = "STATUS"
     df["system_category"] = df["system_category"].astype(str).str.upper().str.strip()
     df["system_category"] = np.where(df["system_category"].eq("ALARM"), "ALARM", df["system_category"])
+
+  
+   
     return df
+
+def _apply_system_configuratiom(df:pd.DataFrame) -> pd.DataFrame:
+    if "system_category" in df.columns:
+        system_type = df['system_category'].astype(str).str.upper().str.strip()
+        df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
+    
+    if "name" in df.columns:
+        # Eliminar espacios y asegurar tipo string
+        df["name"] = df["name"].astype(str).str.strip()
+        
+        # Contar repeticiones
+        duplicates = df.groupby("name").cumcount()
+        
+        # Agregar sufijo solo a duplicados (primer valor tiene índice 0)
+        df["name"] = np.where(
+            duplicates == 0,
+            df["name"],
+            df["name"] + "_" + (duplicates + 1).astype(str)
+        )
+    
+    return df 
 
 def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
     mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 60, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0, "CONFIG_PARAMETER":0}
@@ -362,6 +418,7 @@ def _apply_view_rules(df: pd.DataFrame) -> pd.DataFrame:
 
 def _apply_localization(df: pd.DataFrame) -> pd.DataFrame:
     """Crea campo l10n multilingüe a partir de columnas de descripción."""
+
     langs = {
         "description_en": "en_US",
         "description": "es_ES",
@@ -374,16 +431,36 @@ def _apply_localization(df: pd.DataFrame) -> pd.DataFrame:
         translations = {}
         for col, lang in langs.items():
             if col in row and pd.notna(row[col]):
-                translations[lang] = {"name": None, "description": str(row[col]).strip()}
+                # Convertir a string y cortar a 60 caracteres
+                desc = str(row[col]).strip()[:60]
+                translations[lang] = {
+                    "name": None,
+                    "_type": "languages",
+                    "category": None,
+                    "description": desc
+                }
+
+        # Si no hay traducciones, incluir al menos es_ES vacío
         if not translations:
-            translations = {"es_ES": {"name": None, "description": None}}
-        return {
+            translations = {
+                "es_ES": {
+                    "name": None,
+                    "_type": "languages",
+                    "category": None,
+                    "description": None
+                }
+            }
+        
+        l10n_dict = {
             "_type": "l10n",
             "default_lang": "es_ES",
             "translations": translations
         }
 
-    df["l10n"] = df.apply(build_l10n, axis=1).apply(lambda x: str(x).replace("'", '"'))
+        # Convertir a JSON con formato sin espacios innecesarios
+        return json.dumps(l10n_dict, ensure_ascii=False, separators=(',', ':'))
+
+    df["l10n"] = df.apply(build_l10n, axis=1)
     return df
 
 def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:

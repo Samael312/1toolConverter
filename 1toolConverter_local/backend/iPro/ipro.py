@@ -216,8 +216,26 @@ def convert_excel_to_dataframe(file_bytes: bytes) -> Optional[pd.DataFrame]:
                 rw = (df['read'] > 0) & (df['write'] > 0)
                 df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 1
                 df.loc[only_read & system_type.isin(['STATUS']), 'read'] = 4
-                df.loc[rw & system_type.isin(['COMMAND']), ['read', 'write']] = [3, 6]
+                df.loc[rw & system_type.isin(['COMMAND']), ['read', 'write']] = [0, 6]
                 df.loc[rw & system_type.isin(['CONFIG_PARAMETER']), ['read', 'write']] = [1, 5]
+            
+            if "system_category" in df.columns:
+                system_type = df['system_category'].astype(str).str.upper().str.strip()
+                df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
+            
+            if "name" in df.columns:
+                # Eliminar espacios y asegurar tipo string
+                df["name"] = df["name"].astype(str).str.strip()
+                
+                # Contar repeticiones
+                duplicates = df.groupby("name").cumcount()
+                
+                # Agregar sufijo solo a duplicados (primer valor tiene índice 0)
+                df["name"] = np.where(
+                    duplicates == 0,
+                    df["name"],
+                    df["name"] + "_" + (duplicates + 1).astype(str)
+                )
 
             # ------------------------------------------------
             # Normalización de longitud según potencias de 2 válidas (1, 2, 4, 8, 16bit)
@@ -239,6 +257,19 @@ def convert_excel_to_dataframe(file_bytes: bytes) -> Optional[pd.DataFrame]:
 
                 df['length'] = df['length'].apply(normalize_length)
 
+            if "name" in df.columns:
+                # Eliminar espacios y asegurar tipo string
+                df["name"] = df["name"].astype(str).str.strip()
+                
+                # Contar repeticiones
+                duplicates = df.groupby("name").cumcount()
+                
+                # Agregar sufijo solo a duplicados (primer valor tiene índice 0)
+                df["name"] = np.where(
+                    duplicates == 0,
+                    df["name"],
+                    df["name"] + "_" + (duplicates + 1).astype(str)
+                )
             # ------------------------------------------------
             # Valores y columnas básicas
             # ------------------------------------------------

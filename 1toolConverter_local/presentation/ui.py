@@ -110,7 +110,7 @@ class HTMLConverterUI:
             valid_groups1 = [
                 'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
                 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS',
-                #'SYSTEM'
+                'SYSTEM'
             ]
 
             valid_groups2 = [
@@ -408,7 +408,7 @@ class HTMLConverterUI:
             self.table_card.visible = False
 
             cols = ["id", "register", "name", "description", "system_category",
-                    "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view" ]
+                    "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
             # Selector de columna + campo de búsqueda
             with ui.row().classes('mt-2 mb-2 items-center gap-2'):

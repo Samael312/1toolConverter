@@ -165,6 +165,24 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     
     if 'description' in df.columns:
         df['description'] = df['description'].astype(str).str.slice(0, 60)
+    
+    if "system_category" in df.columns:
+        system_type = df['system_category'].astype(str).str.upper().str.strip()
+        df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
+    
+    if "name" in df.columns:
+        # Eliminar espacios y asegurar tipo string
+        df["name"] = df["name"].astype(str).str.strip()
+        
+        # Contar repeticiones
+        duplicates = df.groupby("name").cumcount()
+        
+        # Agregar sufijo solo a duplicados (primer valor tiene índice 0)
+        df["name"] = np.where(
+            duplicates == 0,
+            df["name"],
+            df["name"] + "_" + (duplicates + 1).astype(str)
+        )
 
     return df
 

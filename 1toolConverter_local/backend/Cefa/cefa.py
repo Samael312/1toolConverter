@@ -4,6 +4,7 @@ from pathlib import Path
 from io import BytesIO
 import pandas as pd
 import pdfplumber
+import numpy as np
 
 # ====================================================
 # Configuración de logging
@@ -294,6 +295,26 @@ def _apply_view_rules(df: pd.DataFrame) -> pd.DataFrame:
 def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
     mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 60, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0, "CONFIG_PARAMETER":0}
     df["sampling"] = df["system_category"].map(mapping).fillna(60)
+
+     # Agregar sufijo solo a duplicados (primer valor tiene índice 0)
+    if "system_category" in df.columns:
+        system_type = df['system_category'].astype(str).str.upper().str.strip()
+        df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
+    
+    if "name" in df.columns:
+        # Eliminar espacios y asegurar tipo string
+        df["name"] = df["name"].astype(str).str.strip()
+        
+        # Contar repeticiones
+        duplicates = df.groupby("name").cumcount()
+        
+        # Agregar sufijo solo a duplicados (primer valor tiene índice 0)
+        df["name"] = np.where(
+            duplicates == 0,
+            df["name"],
+            df["name"] + "_" + (duplicates + 1).astype(str)
+        )
+    
     return df
 
 def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
