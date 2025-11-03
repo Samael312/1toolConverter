@@ -397,8 +397,8 @@ def _apply_system_configuratiom(df:pd.DataFrame) -> pd.DataFrame:
     return df 
 
 def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
-    mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 60, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0, "CONFIG_PARAMETER":0}
-    df["sampling"] = df["system_category"].map(mapping).fillna(60)
+    mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 0, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0, "CONFIG_PARAMETER":0}
+    df["sampling"] = df["system_category"].map(mapping).fillna(0)
     return df
 
 def _apply_view_rules(df: pd.DataFrame) -> pd.DataFrame:

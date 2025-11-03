@@ -293,12 +293,12 @@ def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
     sampling = {
         'ALARM': 30,
         'SET_POINT': 300,
-        'DEFAULT': 60,
+        'DEFAULT': 0,
         'COMMAND': 0,
         'STATUS': 60,
         'CONFIG_PARAMETER': 0
     }
-    df['sampling'] = df['system_category'].map(sampling).fillna(60)
+    df['sampling'] = df['system_category'].map(sampling).fillna(0)
     return df
 
 def _apply_specific_rules(df: pd.DataFrame) -> pd.DataFrame:

@@ -36,7 +36,7 @@ DEFAULT_VALUES = {
     "system_category": "STATUS",
     "category": "DEFAULT",
     "view": "basic",
-    "sampling": 60,
+    "sampling": 0,
     "read": "",
     "write": "",
     "minvalue": 0,
@@ -131,6 +131,13 @@ def apply_read_write_flags(df: pd.DataFrame) -> pd.DataFrame:
 # Propagar categorías por duplicados
 # ====================================================
 def propagate_context(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Propaga categorías basadas en duplicados de 'register'.
+
+    - Cuando un 'register' se repite, la primera ocurrencia define la categoría (usando 'name').
+    - Esa fila se elimina después de propagar la categoría,
+      excepto si el 'name' comienza por 'AL'.
+    """
     logger.info("Propagando categorías basadas en duplicados de 'register'...")
 
     df["register"] = df["register"].astype(str).str.strip()
@@ -150,27 +157,37 @@ def propagate_context(df: pd.DataFrame) -> pd.DataFrame:
             categories.append(current_category)
             continue
 
-        if reg not in first_names:
-            first_names[reg] = name.replace(" ", "_")
+        # Primera aparición de un registro
+        if reg not in seen_registers:
             seen_registers.add(reg)
+            first_names[reg] = name.replace(" ", "_")
             categories.append(current_category)
             continue
 
-        if reg in seen_registers:
-            current_category = first_names[reg]
-            first_index = df.index[df["register"] == reg][0]
+        # Duplicado → Propagar categoría usando el nombre de la primera aparición
+        current_category = first_names[reg]
+        first_index = df.index[df["register"] == reg][0]
+
+        # Eliminar encabezado si no empieza por AL
+        header_name = str(df.at[first_index, "name"]).strip()
+        if not header_name.upper().startswith("AL"):
             if first_index not in first_duplicate_indexes:
                 first_duplicate_indexes.append(first_index)
+                logger.info(f"🗑️ Eliminando encabezado de grupo '{header_name}' en fila {first_index}")
+        else:
+            logger.info(f"⚠️ Encabezado '{header_name}' conservado (comienza por 'AL')")
 
         categories.append(current_category)
 
     df["category"] = categories
 
+    # Eliminar encabezados de grupo que no sean AL...
     if first_duplicate_indexes:
         df = df.drop(index=first_duplicate_indexes).reset_index(drop=True)
-        logger.info(f"Eliminadas {len(first_duplicate_indexes)} filas encabezado de grupo.")
+        logger.info(f"Eliminadas {len(first_duplicate_indexes)} filas de encabezado de grupo (no AL).")
 
     return df
+
 
 
 # ====================================================
@@ -179,9 +196,10 @@ def propagate_context(df: pd.DataFrame) -> pd.DataFrame:
 def propagate_empty_register_category(df: pd.DataFrame) -> pd.DataFrame:
     """
     Si 'register' está vacío:
-      - El valor de 'name' en esa fila define una nueva categoría activa.
-      - Las siguientes filas heredan esa categoría hasta que aparezca otro vacío.
-      - Finalmente, se eliminan las filas donde 'register' estaba vacío.
+    - El valor de 'name' en esa fila define una nueva categoría activa.
+    - Las siguientes filas heredan esa categoría hasta que aparezca otro vacío.
+    - Finalmente, se eliminan las filas donde 'register' estaba vacío,
+      excepto si el 'name' comienza por 'AL' (por ejemplo: 'ALARMAS').
     """
     logger.info("Propagando categorías basadas en filas con 'register' vacío y eliminando encabezados...")
 
@@ -195,19 +213,20 @@ def propagate_empty_register_category(df: pd.DataFrame) -> pd.DataFrame:
 
         # Si el registro está vacío, define nueva categoría
         if reg == "" or reg.lower() in ["nan", "none"]:
-            empty_rows.append(i)
             if name:
                 current_category = name.replace(" ", "_")
                 logger.info(f"➡️ Nueva categoría detectada por vacío en fila {i}: '{current_category}'")
-            continue
+
+                
+                empty_rows.append(i)
 
         # Aplicar categoría actual
         if current_category:
             df.at[i, "category"] = current_category
 
-    # Eliminar las filas vacías después de propagar
+    # Eliminar las filas vacías (excepto encabezados tipo 'AL...')
     if empty_rows:
-        logger.info(f"🗑️ Eliminando {len(empty_rows)} filas con 'register' vacío: {empty_rows}")
+        logger.info(f"🗑️ Eliminando {len(empty_rows)} filas con 'register' vacío (no AL): {empty_rows}")
         df = df.drop(index=empty_rows).reset_index(drop=True)
 
     logger.info("✅ Categorías propagadas y filas vacías eliminadas correctamente.")
@@ -286,15 +305,30 @@ def _apply_view_rules(df: pd.DataFrame) -> pd.DataFrame:
         'DEFAULT': "simple",
         'COMMAND': "simple",
         'STATUS': "basic",
+        'DIGITAL_OUTPUT': "simple",
         'CONFIG_PARAMETER': "simple",
         'SYSTEM': 'simple'
     }
     df['view'] = df['system_category'].map(view).fillna('simple')
     return df
 
+def _apply_length_rules(df: pd.DataFrame) -> pd.DataFrame:
+    length = {
+        'ALARM': '1bit',
+        'SET_POINT': "f32cdab",
+        'DEFAULT': "s16",
+        'COMMAND': "1bit",
+        'STATUS': "f32cdab",
+        'DIGITAL_OUTPUT':"f32cdab",
+        'CONFIG_PARAMETER': "f32cdab",
+        'SYSTEM': 's16'
+    }
+    df['length'] = df['system_category'].map(length).fillna('s16')
+    return df
+
 def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
-    mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 60, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0, "CONFIG_PARAMETER":0}
-    df["sampling"] = df["system_category"].map(mapping).fillna(60)
+    mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 0, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0, "CONFIG_PARAMETER":0}
+    df["sampling"] = df["system_category"].map(mapping).fillna(0)
 
      # Agregar sufijo solo a duplicados (primer valor tiene índice 0)
     if "system_category" in df.columns:
@@ -316,6 +350,53 @@ def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
         )
     
     return df
+
+def _apply_mask_logic(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Asigna máscaras (mask) a filas donde 'length' contiene 'BIT'.
+    
+    Regla:
+        Cada fila marcada como 'BIT' recibe una máscara binaria secuencial:
+        0x1, 0x2, 0x4, ..., 0x8000
+        Si hay más de 16 filas 'BIT', reinicia el conteo desde 0x1.
+    """
+    logger.info("=== Iniciando proceso de asignación de máscaras por 'length' = BIT ===")
+    df["mask"] = "0x0"
+    df = df.copy()
+
+    # Validar columnas
+    if "length" not in df.columns:
+        logger.warning("No se encontró la columna 'length'. No se aplicarán máscaras.")
+        return df
+
+    # Asegurar que exista la columna mask
+    if "mask" not in df.columns:
+        df["mask"] = np.nan
+
+    # Normalizar la columna length
+    df["length"] = df["length"].astype(str).str.upper().str.strip()
+
+    # Filas con 'BIT'
+    mask_bit = df["length"].str.contains("BIT", na=False)
+    total_bits = mask_bit.sum()
+
+    if total_bits == 0:
+        logger.info("No se encontraron filas con 'length' = BIT. No se asignaron máscaras.")
+        return df
+
+    logger.info(f"Total de filas 'BIT' detectadas: {total_bits}")
+
+    # Generar máscaras 0x1, 0x2, 0x4, ..., 0x8000 (reinicia cada 16)
+    masks = [f"0x{1 << (i % 16):X}" for i in range(total_bits)]
+
+    # Asignar las máscaras a las filas correspondientes
+    df.loc[mask_bit, "mask"] = masks
+
+    logger.info(f"✅ Máscaras asignadas a {total_bits} filas con 'length' = BIT")
+    logger.info("=== Finalizado proceso de asignación de máscaras ===")
+
+    return df
+
 
 def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -495,6 +576,8 @@ def process_pdf(pdf_content: bytes) -> pd.DataFrame:
     df = _process_access_permissions(df)
     df = _apply_range_rules(df)
     df = _apply_unit_rules(df)
+    df = _apply_mask_logic(df)
+    df= _apply_length_rules(df)
 
     for col in LIBRARY_COLUMNS:
         if col not in df.columns:
