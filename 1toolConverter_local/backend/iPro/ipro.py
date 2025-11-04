@@ -148,7 +148,7 @@ def apply_rw_permissions(df: pd.DataFrame) -> pd.DataFrame:
     if 'attribute' in df.columns:
         attr = df['attribute'].str.upper().str.strip()
         df.loc[attr == 'READ', ['read', 'write']] = [3, 0]
-        df.loc[attr == 'READWRITE', ['read', 'write']] = [3, 6]
+        df.loc[attr == 'READWRITE', ['read', 'write']] = [3, 16]
         df.loc[attr == 'WRITE', ['read', 'write']] = [0, 6]
 
     if 'system_category' in df.columns:
@@ -157,8 +157,8 @@ def apply_rw_permissions(df: pd.DataFrame) -> pd.DataFrame:
         rw = (df['read'] > 0) & (df['write'] > 0)
         df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 1
         df.loc[only_read & system_type.isin(['STATUS']), 'read'] = 4
-        df.loc[rw & system_type.isin(['COMMAND']), ['read', 'write']] = [0, 6]
-        df.loc[rw & system_type.isin(['CONFIG_PARAMETER']), ['read', 'write']] = [1, 5]
+        df.loc[rw & system_type.isin(['COMMAND']), ['read', 'write']] = [0, 16]
+        df.loc[rw & system_type.isin(['CONFIG_PARAMETER']), ['read', 'write']] = [3, 16]
     return df
 
 

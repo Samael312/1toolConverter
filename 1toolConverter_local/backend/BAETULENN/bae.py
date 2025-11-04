@@ -206,7 +206,7 @@ def buscar_y_concatenar_tablas(excel_path):
     return concatenado
 
 
-def main(excel_path):
+def process_excel_bae(excel_path):
     resultado = buscar_y_concatenar_tablas(excel_path)
     output = "resultado_concatenado.xlsx"
     resultado.to_excel(output, index=False)
@@ -217,4 +217,4 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Uso: python bae.py <archivo_excel.xlsx>")
         sys.exit(1)
-    main(sys.argv[1])
+    process_excel_bae(sys.argv[1])
