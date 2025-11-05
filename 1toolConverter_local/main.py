@@ -9,7 +9,7 @@ from backend.Keyter.KeyterNew import process_excel as keyter_new_process
 from backend.Keyter.Keyter import process_html as keyter_html_process
 from backend.iPro.ipro import convert_excel_to_dataframe as ipro_convert_excel
 from backend.Cefa.cefa import process_pdf as cefa_process_pdf
-from backend.BAETULENN.bae import process_excel_bae as bae_process_excel
+#from backend.General.gen import process_excel_bae as bae_process_excel
 from presentation.ui import HTMLConverterUI
 
 # =====================================================
@@ -48,9 +48,9 @@ def unified_process_file(mode: str, filename: str, file_bytes: bytes):
             logger.info("Procesando archivo PDF con backend Cefa")
             return cefa_process_pdf(file_bytes)
         
-        elif mode == "Baetullen":
-            logger.info("Procesando archivo XLSX con backend Bae")
-            return bae_process_excel(file_bytes)
+        #elif mode == "General":
+        #    logger.info("Procesando archivo XLSX con backend Bae")
+        #    return bae_process_excel(file_bytes)
 
         else:
             ui.notify("Modo no reconocido", type='warning')

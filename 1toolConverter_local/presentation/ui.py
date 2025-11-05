@@ -305,13 +305,13 @@ class HTMLConverterUI:
 
         # Configurar tipo de archivo permitido según backend
         if backend == 'Keyter':
-            file_accept = '.xlsx,.html'
+            file_accept = '.xlsx,.xls,.xlsm,.html,.htm'
         elif backend == 'iPro':
             file_accept = '.xlsx'
         elif backend == 'Cefa':
             file_accept = '.pdf'
-        elif backend == 'Baetullen':
-            file_accept = '.xlsx'
+        elif backend == 'General':
+            file_accept = '.xlsx,.xls,.xlsm,.html,.htm,.pdf'
         else:
             file_accept = ''
 
@@ -378,13 +378,13 @@ class HTMLConverterUI:
             self.upload_component.on_upload(self.handle_upload)
 
             if self.backend_selected == "Keyter":
-                self.upload_component.props('accept=".xlsx",".html"')
+                self.upload_component.props('accept=".xls",".xlsx",".xlsm",".html",".htm"')
             elif self.backend_selected == "iPro":
                 self.upload_component.props('accept=".xlsx"')
             elif self.backend_selected == "Cefa":
                 self.upload_component.props('accept=".pdf"')
-            elif self.backend_selected == "Baetullen":
-                self.upload_component.props('accept=".xlsx"')
+            elif self.backend_selected == "General":
+                self.upload_component.props('accept=".xls",".xlsx",".xlsm",".html",".htm",".pdf"')
             else:
                 self.upload_component.disable()
 
