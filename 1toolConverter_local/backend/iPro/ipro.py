@@ -35,13 +35,21 @@ LIBRARY_COLUMNS = [
 
 COLUMN_MAPPING = {
     'Name': 'name',
+    'Nombre': 'name',
     'Address': 'register',
+    'Dirección.1': 'register',
     'Dimension': 'dimension',
+    'Dimensión': 'dimension',
     'Comment': 'description',
+    'Commentario': 'description',
     'Wiring': 'category',
+    'Cableado': 'category',
     'String Size': 'length',
+    'Tamaño de la cadena': 'length',
     'Attribute': 'attribute',  
-    'Groups': 'groups'
+    'Atributo': 'attribute',
+    'Groups': 'groups',
+    'Grupos': 'groups'
 }
 
 # =====================================================
@@ -341,3 +349,136 @@ def convert_excel_to_dataframe(file_bytes: bytes) -> Optional[pd.DataFrame]:
 
     logger.info(f"Procesamiento finalizado correctamente ({len(final_df)} filas).")
     return final_df
+
+# =====================================================
+# EJECUCIÓN POR LÍNEA DE COMANDO (actualizada con export intermedio)
+# =====================================================
+if __name__ == "__main__":
+    import argparse
+    import sys
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(
+        description="Procesa un archivo Excel de variables y genera DataFrames intermedios y finales."
+    )
+    parser.add_argument(
+        "--input", "-i", required=True, help="Ruta al archivo Excel de entrada (.xlsx)"
+    )
+    parser.add_argument(
+        "--output", "-o", default="procesado_final.xlsx",
+        help="Ruta del archivo Excel de salida final"
+    )
+    parser.add_argument(
+        "--preview", "-p", action="store_true",
+        help="Muestra las primeras filas del DataFrame procesado antes de exportar"
+    )
+
+    args = parser.parse_args()
+    input_path = Path(args.input)
+    output_path = Path(args.output)
+    intermedio_path = output_path.with_name(output_path.stem + "_intermedio.xlsx")
+
+    if not input_path.exists():
+        logger.error(f"El archivo de entrada no existe: {input_path}")
+        sys.exit(1)
+
+    logger.info(f"📘 Leyendo archivo Excel: {input_path}")
+
+    try:
+        with open(input_path, "rb") as f:
+            file_bytes = f.read()
+            # Procesamiento principal del Excel
+            xls = pd.ExcelFile(BytesIO(file_bytes))
+            logger.info(f"Archivo Excel leído con {len(xls.sheet_names)} hojas.")
+
+            processed_dfs = []
+            for sheet_name in xls.sheet_names:
+                logger.info(f"Procesando hoja: {sheet_name}")
+                try:
+                    df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
+                    if len(df) > 0:
+                        df = df.drop(df.index[0]).reset_index(drop=True)
+                    df.columns = df.columns.astype(str).str.strip()
+                    df.rename(columns=COLUMN_MAPPING, inplace=True, errors="ignore")
+                    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+                    for col in ['category', 'name', 'description', 'attribute', 'groups']:
+                        if col in df.columns:
+                            df[col] = df[col].astype(str).str.strip()
+
+                    if 'register' in df.columns:
+                        df['register'] = df['register'].apply(register_to_decimal)
+
+                    if 'dimension' in df.columns:
+                        df = expand_dimension_to_rows_name_bits(df, default_bits=1)
+                        df.drop(columns=['dimension'], inplace=True, errors='ignore')
+
+                    if 'description' in df.columns:
+                        df['description'] = df['description'].astype(str).str.slice(0, 60)
+
+                    df = categorize_system(df)
+                    if df.empty:
+                        logger.warning(f"La hoja '{sheet_name}' no contiene categorías válidas, se omitirá.")
+                        continue
+
+                    df = apply_min_max(df)
+                    df = apply_rw_permissions(df)
+                    df = assign_tags(df)
+                    df = fix_duplicate_names(df)
+                    df = _apply_mask_logic(df)
+                    df = _apply_sampling_rules(df)
+
+                    if 'length' in df.columns:
+                        df['length'] = df['length'].apply(normalize_length)
+
+                    df['unit'] = df.get('unit', pd.Series("", index=df.index)).astype(str).replace(
+                        {"nan": "", "None": "", "NaN": ""}
+                    )
+                    df['offset'] = 0.0
+
+                    processed_dfs.append(df)
+
+                except Exception as e:
+                    logger.error(f"Error procesando hoja {sheet_name}: {e}", exc_info=True)
+                    continue
+
+            if not processed_dfs:
+                logger.warning("No se procesaron hojas válidas en el Excel.")
+                sys.exit(0)
+
+            df_intermedio = pd.concat(processed_dfs, ignore_index=True)
+            logger.info(f"✅ DataFrame intermedio generado ({len(df_intermedio)} filas)")
+
+            # Guardar versión intermedia
+            try:
+                df_intermedio.to_excel(intermedio_path, index=False)
+                logger.info(f"💾 Archivo intermedio exportado: {intermedio_path.resolve()}")
+            except Exception as e:
+                logger.warning(f"No se pudo guardar el archivo intermedio: {e}")
+
+            # Procesamiento final
+            df_final = df_intermedio[
+                pd.to_numeric(df_intermedio["register"], errors="coerce").notna()
+            ].copy()
+            df_final["register"] = df_final["register"].astype(int)
+            df_final["id"] = range(1, len(df_final) + 1)
+            df_final["view"] = "simple"
+            df_final = finalize_dataframe(df_final)
+
+    except Exception as e:
+        logger.error(f"Error general al procesar el archivo: {e}", exc_info=True)
+        sys.exit(1)
+
+    if df_final is None or df_final.empty:
+        logger.warning("⚠️ El DataFrame final está vacío. No se generará archivo de salida.")
+        sys.exit(0)
+
+    if args.preview:
+        logger.info("Vista previa del DataFrame final:")
+        print(df_final.head(20).to_string(index=False))
+
+    try:
+        df_final.to_excel(output_path, index=False)
+        logger.info(f"✅ Archivo final exportado correctamente: {output_path.resolve()}")
+    except Exception as e:
+        logger.error(f"Error al exportar el Excel final: {e}", exc_info=True)
+        sys.exit(1)
