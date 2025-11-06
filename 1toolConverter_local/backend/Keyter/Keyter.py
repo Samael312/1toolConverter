@@ -332,3 +332,54 @@ def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = val
     return df
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(
+        description="Procesa un archivo HTML con tablas de variables y genera un DataFrame formateado para Keyter."
+    )
+    parser.add_argument(
+        "--input", "-i", required=True, help="Ruta al archivo HTML de entrada"
+    )
+    parser.add_argument(
+        "--output", "-o", default="procesado_final.xlsx",
+        help="Ruta del archivo Excel de salida"
+    )
+    parser.add_argument(
+        "--preview", "-p", action="store_true",
+        help="Muestra las primeras filas del DataFrame final antes de exportar"
+    )
+
+    args = parser.parse_args()
+    input_path = Path(args.input)
+    output_path = Path(args.output)
+
+    if not input_path.exists():
+        logger.error(f"El archivo de entrada no existe: {input_path}")
+        sys.exit(1)
+
+    logger.info(f"📘 Leyendo archivo HTML: {input_path}")
+
+    try:
+        with open(input_path, "rb") as f:
+            html_bytes = f.read()
+
+        df_final = process_html(html_bytes)
+
+        if df_final is None or df_final.empty:
+            logger.warning("⚠️ El DataFrame resultante está vacío. No se generará archivo.")
+            sys.exit(0)
+
+        if args.preview:
+            logger.info("Vista previa del DataFrame final:")
+            print(df_final.head(20).to_string(index=False))
+
+        df_final.to_excel(output_path, index=False)
+        logger.info(f"✅ Archivo final exportado exitosamente: {output_path.resolve()}")
+
+    except Exception as e:
+        logger.error(f"Error general al procesar el archivo: {e}", exc_info=True)
+        sys.exit(1)
