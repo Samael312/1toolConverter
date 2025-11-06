@@ -63,55 +63,92 @@ import pandas as pd
 from openpyxl import load_workbook
 
 def process_excel(
-    excel_source: Any,
-    sheet_name: Optional[str] = None,
+    excel_content: bytes, 
     header_row: int = 5
 ) -> Optional[pd.DataFrame]:
-    """
-    Procesa un Excel desde bytes o desde ruta de archivo.
-    Si se pasa una ruta, se procesará una sola hoja.
-    Si se pasa bytes, se procesarán todas las hojas.
-    """
+    logger.info("Procesando archivo Excel desde contenido en memoria (todas las hojas)...")
+
     try:
-        if isinstance(excel_source, bytes):
-            excel_io = BytesIO(excel_source)
-            wb = load_workbook(excel_io, data_only=True, read_only=False, keep_vba=True)
-        else:
-            wb = load_workbook(excel_source, data_only=True, read_only=False, keep_vba=True)
+        excel_io = BytesIO(excel_content)
+        wb = load_workbook(excel_io, data_only=True, read_only=False, keep_vba=True)
     except Exception as e:
-        logger.error(f"Error al cargar Excel: {e}", exc_info=True)
+        logger.error(f"Error al cargar Excel desde bytes: {e}", exc_info=True)
         return None
 
-    # Si se especifica una hoja, solo esa
-    sheetnames = [sheet_name] if sheet_name else wb.sheetnames
+    all_dfs = []  # aquí almacenaremos los DF por hoja
 
-    all_dfs = []
-    for name in sheetnames:
-        logger.info(f"🟢 Procesando hoja '{name}'...")
-        ws = wb[name]
+    for sheet_name in wb.sheetnames:
+        logger.info(f"🟢 Procesando hoja '{sheet_name}'...")
+
+        try:
+            ws = wb[sheet_name]
+        except KeyError:
+            logger.warning(f"La hoja '{sheet_name}' no se pudo abrir. Saltando.")
+            continue
+
+        # Extraer encabezados
         header_cells = list(ws[header_row])
         headers = [str(c.value).strip() if c.value else f"col_{i}" for i, c in enumerate(header_cells)]
-        rows = []
 
-        for row in ws.iter_rows(min_row=header_row + 2, max_col=len(header_cells)):
+        rows = []
+        current_series = None
+        start_row = header_row + 2
+
+        for row_idx, row in enumerate(ws.iter_rows(min_row=start_row, max_col=len(header_cells)), start=start_row):
+            is_green = False
+            series_name = None
+
+            for cell in row:
+                fill = cell.fill
+                pattern = getattr(fill, "patternType", None)
+                fg = getattr(fill, "fgColor", None)
+
+                if (
+                    pattern == "solid"
+                    and getattr(fg, "type", None) == "theme"
+                    and getattr(fg, "theme", None) == 9
+                    and 0.38 < getattr(fg, "tint", 0.0) < 0.41
+                ):
+                    is_green = True
+                    if cell.value not in (None, '') and not series_name:
+                        series_name = str(cell.value).strip()
+                    break
+
             values = [cell.value for cell in row]
-            row_dict = {headers[i]: values[i] for i in range(len(headers))}
-            row_dict["sheet_name"] = name
+            row_dict = {headers[i]: values[i] if i < len(values) else None for i in range(len(headers))}
+            row_dict["is_green"] = is_green
+
+            if is_green and series_name:
+                current_series = series_name
+                row_dict["category"] = series_name
+            elif current_series:
+                row_dict["category"] = current_series
+
+            row_dict["sheet_name"] = sheet_name  # opcional: para mantener trazabilidad
             rows.append(row_dict)
 
         df_sheet = pd.DataFrame(rows)
+        logger.info(f"✅ Finalizada hoja '{sheet_name}' ({len(df_sheet)} filas procesadas).")
         all_dfs.append(df_sheet)
 
     if not all_dfs:
+        logger.warning("⚠ No se procesó ninguna hoja.")
         return None
 
+    # Unir todas las hojas
     df_total = pd.concat(all_dfs, ignore_index=True)
-    df_total = _process_dataframe(df_total)
-    df_total = _add_default_columns(df_total)
-    df_total = df_total.reindex(columns=LIBRARY_COLUMNS)
+
+    # Si estás usando el backend Keyter, aquí viene el siguiente paso:
+    try:
+        df_total = _process_dataframe(df_total)  # si aplica
+        df_total["id"] = range(1, len(df_total) + 1)
+        df_total = _add_default_columns(df_total)
+        df_total = df_total.reindex(columns=LIBRARY_COLUMNS)
+    except Exception as e:
+        logger.error(f"Error integrando DataFrame al formato Keyter: {e}", exc_info=True)
+        return None
 
     return df_total
-
 
 
 # =====================================================
