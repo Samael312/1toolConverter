@@ -1,0 +1,64 @@
+{
+  "register": {
+    "type": ["int", "hex"],
+    "pattern": [
+      "^(?:0x)?[0-9A-Fa-f]+$",
+      "^[0-9]+$"
+    ]
+  },
+
+  "name": {
+    "type": ["str"],
+    "pattern": [
+      "^[A-Za-z0-9_\\-\\.\\/:]+$"
+    ],
+    "min_length": 2,
+    "max_length": 30
+  },
+
+  "description": {
+    "type": ["str"],
+    "pattern": [
+      "^[\\w\\s\\-\\.,;:\\(\\)\\%°º/]+$"
+    ],
+    "min_length": 2
+  },
+
+  "system_category": {
+    "type": ["str"],
+    "pattern": [
+      "(?i)\\b(?:Analog|Integer|Digital|INSTANCIAS|ENTRADAS_SALIDAS|REGISTRO|PARAMETROS_CONFIGURACION|ESTADOS|WARNINGS|ALARMAS|COMANDOS|SysParameters|ApplicationRelease|MODBUS|MODULO_EXPANSION|E\\.ANALOGICA|CONSIGNA|S\\.ANALOGICA|PARAMETRO|SISTEMA|ALARMA|ESTADO|E\\.DIGITAL)\\b"
+    ]
+  },
+
+"ReadWrite": {
+  "type": ["str"],
+  "pattern": [
+    "^(?i)\\s*(R|W|R/W|READ|WRITE|READ/WRITE)\\s*$"
+  ],
+  "min_length": 1,
+  "max_length": 3
+},
+
+"minvalue": {
+  "type": ["float", "int"],
+  "pattern": [
+    "^-?\\d+(?:[\\.,]\\d+)?$"
+  ]
+},
+
+"maxvalue": {
+  "type": ["float", "int"],
+  "pattern": [
+    "^(?!-)(?:\\d+(?:[\\.,]\\d+)?)$"
+  ]
+},
+
+  "unit": {
+    "type": ["str"],
+    "pattern": [
+      "^(?:%|°C|ºC|°F|ºF|ppm|kW|kWh|bar|m3/s|m³/s|V|---|A|Hz|Pa|K|m|s|ms)$"
+    ],
+    "max_length": 10
+  }
+}

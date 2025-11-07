@@ -1,9 +1,14 @@
-# 🧩 **Arquitectura del Proyecto: Conversor HTML → Excel**
+# 🧩 **Arquitectura del Proyecto: 1tools - Convert Data Table Format**
 
-## 🧱 **Separación de Responsabilidades**
+## 🧾 **Metadatos del Proyecto**
 
-El proyecto sigue una arquitectura limpia con **división clara entre la lógica de negocio (procesamiento de datos)** y la **capa de presentación (interfaz visual y control de usuario)**.  
-Cada capa es independiente y se comunica a través de **callbacks** bien definidos.
+| Campo | Descripción |
+|-------|--------------|
+| **Autor** | Kiconex - Samuel Ali |
+| **Versión** | 2.0 |
+| **Nombre** | 1tools - Convert Data Table Format |
+| **Tipo** | Aplicación |
+| **Descripción** | Conversión del formato de tablas de variables desde HTML a Excel utilizando `pandas`. |
 
 ---
 
@@ -11,145 +16,187 @@ Cada capa es independiente y se comunica a través de **callbacks** bien definid
 
 1toolConverter_local/
 │
-├── main.py # Lógica de negocio y punto de entrada
-├── presentation/
-│ ├── init.py
-│ └── ui.py # Interfaz gráfica y control de usuario
-│
-├── requirements.txt # Dependencias
-└── ARCHITECTURE.md # Documentación de arquitectura
+├── convert_html_to_excel.py # Script principal de conversión (lógica completa)
+├── ARCHITECTURE.md # Documentación de arquitectura (este archivo)
+└── input.html # Archivo HTML de entrada (ejemplo)
 
 
 ---
 
-## 🎯 **Responsabilidades**
+## ⚙️ **Descripción General**
 
-### 🧠 `main.py` — Lógica de Negocio
+El script **convierte tablas HTML en una hoja Excel unificada**, procesando y normalizando la información de variables industriales.  
+Utiliza `pandas`, `numpy` y `openpyxl` para realizar la lectura, limpieza, transformación y exportación final de datos.
 
-**Responsabilidades principales:**
-- Procesar archivos HTML y extraer tablas.
-- Limpiar, transformar y mapear datos a un formato estándar.
-- Clasificar automáticamente parámetros según reglas.
-- Generar un `DataFrame` con la estructura esperada para exportación.
-- Exponer una interfaz (`process_html`) para que la UI invoque el procesamiento.
-
-**Funciones clave:**
-
-| Función | Descripción |
-|----------|--------------|
-| `process_html()` | Procesa el archivo HTML completo y combina las tablas. |
-| `_process_dataframe()` | Procesa individualmente cada tabla HTML. |
-| `_apply_column_mapping()` | Mapea nombres de columnas a la estructura esperada. |
-| `_process_access_permissions()` | Interpreta permisos de lectura/escritura (R/W). |
-| `_process_specific_columns()` | Limpia y ajusta valores específicos (offsets, unidades, categorías). |
-| `_determine_data_length()` | Determina la longitud de datos según el rango numérico. |
-| `_apply_deep_classification()` | Clasifica los parámetros en grupos lógicos (ALARM, CONFIG, etc.). |
-| `_add_default_columns()` | Añade columnas y valores por defecto si no existen. |
-
-**Constantes:**
-
-| Constante | Descripción |
-|------------|-------------|
-| `LIBRARY_COLUMNS` | Define la estructura final del DataFrame exportado. |
-| `COLUMN_MAPPING` | Define cómo mapear columnas HTML a nombres estándar. |
-
-**Punto de entrada:**
-- `main()` inicializa la aplicación, crea el controlador de UI (`HTMLConverterUI`) y ejecuta la interfaz con NiceGUI.
+El flujo principal:
+1. Lee el archivo HTML.
+2. Extrae todas las tablas válidas.
+3. Limpia, mapea y normaliza los datos.
+4. Aplica reglas automáticas según el tipo de variable y permisos de acceso.
+5. Combina todas las tablas en una única hoja Excel estructurada.
 
 ---
 
-### 🖥️ `presentation/ui.py` — Capa de Presentación
+## 🧱 **Constantes Clave**
 
-**Responsabilidades principales:**
-- Crear y administrar los componentes visuales.
-- Manejar eventos de usuario (subida de archivo, procesamiento, clasificación, descarga).
-- Mostrar los resultados en tablas interactivas.
-- Permitir clasificación manual de parámetros por grupos.
-- Controlar la descarga de archivos Excel procesados.
+### 📋 `LIBRARY_COLUMNS`
+Define el orden y los nombres finales de las columnas exportadas en el Excel:
 
-**Clase principal:**
-- `HTMLConverterUI` — Controlador de interfaz de usuario.
+["id", "register", "name", "description", "system_category", "category", "view",
+"sampling", "read", "write", "minvalue", "maxvalue", "unit", "offset",
+"addition", "mask", "value", "length", "general_icon", "alarm", "metadata",
+"l10n", "tags", "type", "parameter_write_byte_position", "mqtt", "json",
+"current_value", "current_error_status", "notes"]
 
-**Métodos públicos:**
 
-| Método | Descripción |
-|--------|--------------|
-| `create_ui()` | Crea la interfaz completa con todas las secciones. |
-| `handle_upload()` | Gestiona la carga del archivo HTML. |
-| `process_file()` | Llama a la función de negocio (`process_html`) para procesar los datos. |
-| `display_table()` | Muestra los datos procesados en una tabla interactiva. |
-| `assign_group_to_selection()` | Permite asignar manualmente una categoría a las filas seleccionadas. |
-| `delete_selected_group_rows()` | Elimina filas seleccionadas de la tabla de grupos. |
-| `clear_group_table()` | Limpia completamente la tabla de variables clasificadas. |
-| `download_excel()` | Exporta los datos procesados o clasificados a Excel. |
+### 🔄 `COLUMN_MAPPING`
+Mapea nombres de columnas del HTML a nombres estándar:
 
-**Métodos privados (UI interna):**
-
-| Método | Descripción |
-|--------|--------------|
-| `_create_upload_section()` | Sección de carga de archivos HTML. |
-| `_create_process_section()` | Sección de procesamiento y visualización. |
-| `_create_table_section()` | Sección con la tabla de parámetros procesados. |
-| `_create_group_table_section()` | Sección con la tabla de variables clasificadas. |
+| Original | Mapeado a |
+|-----------|------------|
+| BMS Address | register |
+| Variable name | name |
+| Description | description |
+| Min | minvalue |
+| Max | maxvalue |
+| Category | category |
+| UOM | unit |
+| Bms_Ofs | offset |
+| Bms_Type | system_category |
 
 ---
 
-## 🔄 **Flujo de Datos**
+## 🧠 **Lógica Principal**
 
+### 🔹 `convert_html_to_excel(input_path, output_path="parametros.xlsx")`
+
+**Descripción:**  
+Procesa un archivo HTML, extrae todas las tablas y genera un Excel con la información unificada.
+
+**Flujo detallado:**
+
+1. **Lectura del archivo HTML**
+   - Usa `pandas.read_html` con el parser `BeautifulSoup` para extraer todas las tablas.
+   - Si no encuentra tablas válidas, el programa se detiene con un mensaje descriptivo.
+
+2. **Selección de tablas útiles**
+   - Omite la primera tabla (índice 0), asumiendo que es un resumen.
+   - Procesa las tablas restantes.
+
+3. **Limpieza inicial de datos**
+   - Elimina columnas “Unnamed”.
+   - Ajusta encabezados.
+   - Detecta la columna de permisos (`Read/Write` o `Direction`).
+
+4. **Normalización de acceso**
+   - Crea columnas `read` y `write` inicializadas en `0`.
+   - Interpreta permisos:
+     - Contiene “R” → `read = 4`
+     - Contiene “W” → `write = 4`
+
+5. **Reglas automáticas por tipo de variable (`system_category`)**
+
+   | Tipo | Condición | Read | Write | Sampling |
+   |------|------------|------|--------|-----------|
+   | ANALOG / INTEGER (R/W) | Ambos > 0 | 3 | 16 | 60 |
+   | ANALOG / INTEGER (R) | Solo lectura | 4 | 0 | 60 |
+   | DIGITAL (R/W) | Ambos > 0 | 1 | 5 | 60 |
+   | DIGITAL (R) | Solo lectura | 4 | 0 | 60 |
+   | ALARM | Siempre lectura | 4 | 0 | 30 |
+
+6. **Reclasificación de categorías**
+   Se redefine `system_category` según reglas jerárquicas:
+
+   | Condición | Nueva Categoría |
+   |------------|----------------|
+   | ALARM detectada | ALARM |
+   | ANALOG R/W | SET_POINT |
+   | INTEGER R/W | CONFIG_PARAMETER |
+   | ANALOG / INTEGER R-only | DEFAULT |
+   | DIGITAL R/W | COMMAND |
+   | Ninguna aplica | STATUS |
+
+7. **Ajustes adicionales**
+   - Limpieza y normalización de unidades (`unit`).
+   - Conversión de `offset`, `minvalue`, `maxvalue` a valores numéricos.
+   - Determinación de longitud (`length`) → `16bit` o `s16` si hay valores negativos.
+
+8. **Agregado de columnas por defecto**
+   Se completan valores faltantes con información estándar (`alarm`, `metadata`, `tags`, `l10n`, etc.).
+
+9. **Exportación a Excel**
+   - Combina todas las tablas procesadas en una hoja llamada `"Parametros_Unificados"`.
+   - Exporta con `pandas.ExcelWriter` y `openpyxl`.
+
+---
+
+## 🔄 **Flujo General del Sistema**
 Usuario
-↓
-[UI Component] (presentation/ui.py)
-↓
-[Event Handler] (handle_upload, process_file)
-↓
-[Business Logic] (main.py - process_html)
-↓
-[Data Processing] (limpieza, clasificación, validación)
-↓
-[Return to UI] (display_table, download_excel)
-↓
-Usuario (interacción visual)
-
+   ↓
+Archivo HTML
+   ↓
+[convert_html_to_excel()]
+   ↓
+  ├─ Extracción de tablas (pandas)
+  ├─ Limpieza y mapeo de columnas
+  ├─ Reglas de permisos y categorías
+  ├─ Normalización de unidades y valores
+   ↓
+Archivo Excel Unificado
 
 ---
 
-## 🧮 **Detalles de Procesamiento**
+## 🧮 **Dependencias**
 
-| Etapa | Acción |
-|--------|--------|
-| **Lectura HTML** | Extrae tablas mediante `pandas.read_html`. |
-| **Filtrado** | Omite tablas vacías o sin estructura válida. |
-| **Normalización** | Limpia nombres de columnas y elimina las no relevantes. |
-| **Mapeo** | Renombra columnas según `COLUMN_MAPPING`. |
-| **Permisos** | Interpreta las columnas "Read/Write" o "Direction". |
-| **Clasificación** | Aplica reglas automáticas y personalizadas de categorías (`_apply_deep_classification`). |
-| **Finalización** | Combina todas las tablas procesadas, añade columnas por defecto y genera `DataFrame` final. |
+Librería -	Uso
+pandas:	Lectura y escritura de tablas HTML/Excel
+numpy:	Procesamiento numérico y máscaras lógicas
+openpyxl:	Motor de exportación a Excel
+sys, pathlib, typing:	Utilidades estándar del sistema
 
 ---
 
-## 🎨 **Patrón de Diseño**
+## 🧩 **Patrón y Principios**
 
-### 🧩 **Arquitectura por Capas (Layered Architecture)**
+**Single Responsibility:**
+Cada bloque del código tiene una función única (lectura, limpieza, normalización, exportación).
 
-1. **Capa de Presentación** (`presentation/`)
-   - Implementa la interfaz visual.
-   - Gestiona interacción con el usuario.
-   - No contiene lógica de negocio.
-   - Usa callbacks para comunicarse con `main.py`.
+**Pipeline de Procesamiento:**
+Los datos pasan secuencialmente por etapas definidas sin mezclar responsabilidades.
 
-2. **Capa de Negocio** (`main.py`)
-   - Contiene toda la lógica de procesamiento de datos.
-   - No conoce detalles de la interfaz.
-   - Devuelve resultados listos para mostrar o exportar.
+**Data Normalization:**
+Se garantiza un formato unificado independientemente del contenido HTML original.
 
 ---
 
-## 🚀 **Características Destacadas**
+## ✅ **Resultado Final**
 
-- 🔍 Procesamiento automático de múltiples tablas HTML.  
-- 🧹 Limpieza y validación automática de datos.  
-- 🧠 Clasificación automática de parámetros por tipo.  
-- 👩‍💻 Interfaz moderna con **NiceGUI**.  
-- 🗂️ Tablas interactivas con selección múltiple y colores dinámicos.  
-- 📦 Exportación directa a Excel.  
-- ♻️ Eliminación automática de archivos temporales.
+El script genera un archivo Excel con estructura homogénea, listo para:
+
+Cargar en sistemas SCADA o BMS.
+
+Revisar y ajustar manualmente.
+
+Usar como base para automatización de configuración industrial.
+
+Salida final:
+parametros.xlsx
+└── Hoja: "Parametros_Unificados"
+
+---
+
+## 🚀 **Función Principal: `main()`**
+
+**Propósito:**  
+Permite ejecutar el script desde la terminal, solicitando el archivo de entrada o usando uno por defecto.
+
+**Flujo:**
+1. Si se pasa un argumento → se usa como ruta de entrada.  
+2. Si no → solicita al usuario la ruta (por defecto `input.html`).  
+3. Llama a `convert_html_to_excel(path)`.
+
+**Ejecución desde terminal:**
+```bash
+python convert_html_to_excel.py archivo.html
+
+
