@@ -1,15 +1,15 @@
-﻿"""
-Aplicación Conversor HTML a Excel
+"""
+Aplicación Conversor Universal (Keyter / iPro)
 Punto de entrada principal y lógica de negocio.
 """
-from io import BytesIO
-from typing import List, Optional
-import pandas as pd
-import numpy as np
 from nicegui import ui
+import os
 import logging
-
-# Importar la capa de presentación
+from backend.Keyter.KeyterNew import process_excel as keyter_new_process
+from backend.Keyter.Keyter import process_html as keyter_html_process
+from backend.iPro.ipro import convert_excel_to_dataframe as ipro_convert_excel
+from backend.Cefa.cefa import process_pdf as cefa_process_pdf
+#from backend.General.gen import process_excel_bae as bae_process_excel
 from presentation.ui import HTMLConverterUI
 
 # =====================================================
@@ -17,262 +17,79 @@ from presentation.ui import HTMLConverterUI
 # =====================================================
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 # =====================================================
-# CONSTANTES DE NEGOCIO
+# FUNCIÓN UNIFICADA DE PROCESAMIENTO
 # =====================================================
 
-LIBRARY_COLUMNS = [
-    "id", "register", "name", "description", "system_category", "category", "view",
-    "sampling", "read", "write", "minvalue", "maxvalue", "unit", "offset",
-    "addition", "mask", "value", "length", "general_icon", "alarm", "metadata",
-    "l10n", "tags", "type", "parameter_write_byte_position", "mqtt", "json",
-    "current_value", "current_error_status", "notes"
-]
-
-COLUMN_MAPPING = {
-    'BMS Address': 'register',
-    'Variable name': 'name',
-    'Description': 'description',
-    'Min': 'minvalue',
-    'Max': 'maxvalue',
-    'Category': 'category',
-    'UOM': 'unit',
-    'Bms_Ofs': 'offset',
-    'Bms_Type': 'system_category',
-}
-
-
-# =====================================================
-# LÓGICA DE NEGOCIO
-# =====================================================
-
-def process_html(html_content: bytes) -> Optional[pd.DataFrame]:
+def unified_process_file(mode: str, filename: str, file_bytes: bytes):
     """
-    Procesa un archivo HTML y extrae tablas de parámetros.
+    Ejecuta el backend correspondiente según el modo seleccionado (Keyter o iPro).
+    Retorna un DataFrame procesado o None.
     """
-    logger.info("Iniciando análisis HTML")
-    html_io = BytesIO(html_content)
-
+    ext = os.path.splitext(filename)[1].lower()
     try:
-        list_of_dataframes: List[pd.DataFrame] = pd.read_html(
-            html_io,
-            header=0,
-            flavor='bs4'
-        )
-        logger.info(f"Se encontraron {len(list_of_dataframes)} tablas en el HTML")
-    except Exception as e:
-        logger.error(f"Error al parsear HTML: {e}", exc_info=True)
-        ui.notify(f"Error al procesar el archivo HTML: {e}", type='negative')
-        return None
+        if mode == "Keyter":
+            logger.info("Procesando archivo HTML/Excel con backend Keyter")
+            if ext in [".html", ".htm"]:
+                return keyter_html_process(file_bytes)
+            elif ext in [".xls", ".xlsx", ".xlsm"]:
+                return keyter_new_process(file_bytes)
 
-    if not list_of_dataframes or len(list_of_dataframes) < 2:
-        ui.notify("No se encontraron tablas válidas para exportar.", type='warning')
-        return None
+        elif mode == "iPro":
+            logger.info("Procesando archivo Excel con backend iPro")
+            return ipro_convert_excel(file_bytes)
+        
+        elif mode == "Cefa":
+            logger.info("Procesando archivo PDF con backend Cefa")
+            return cefa_process_pdf(file_bytes)
+        
+        #elif mode == "General":
+        #    logger.info("Procesando archivo XLSX con backend Bae")
+        #    return bae_process_excel(file_bytes)
 
-    processed_dfs = []
-    try:
-        for df in list_of_dataframes[1:]:
-            processed_df = _process_dataframe(df)
-            processed_dfs.append(processed_df)
-
-        final_df = pd.concat(processed_dfs, ignore_index=True)
-        final_df["id"] = range(1, len(final_df) + 1)
-        final_df["view"] = "simple"
-
-        final_df = _add_default_columns(final_df)
-        result_df = final_df.reindex(columns=LIBRARY_COLUMNS)
-
-        logger.info(
-            f"Procesamiento HTML completado: "
-            f"{len(result_df)} filas, {len(result_df.columns)} columnas"
-        )
-        return result_df
+        else:
+            ui.notify("Modo no reconocido", type='warning')
+            return None
 
     except Exception as e:
-        logger.error(f"Error durante el procesamiento de tablas: {e}", exc_info=True)
-        ui.notify(f"Error durante el procesamiento: {e}", type='negative')
+        logger.exception("Error en unified_process_file:")
+        ui.notify(f"Error procesando el archivo: {e}", type='negative')
         return None
 
 
-def _process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Procesa un DataFrame individual aplicando transformaciones y mapeos."""
-    df.columns = df.columns.astype(str).str.strip()
-    if not df.empty and not str(df.iloc[0, 0]).strip().isdigit():
-        df = df.iloc[1:].copy()
-
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    df = _apply_column_mapping(df)
-    df = _process_access_permissions(df)
-    df = _process_specific_columns(df)
-    df = _determine_data_length(df)
-    df = _apply_deep_classification(df)
-    df = _apply_sampling_rules(df)  # ✅ Establecer sampling después de la clasificación
-    return df
-
-
-def _apply_column_mapping(df: pd.DataFrame) -> pd.DataFrame:
-    access_col_name = next((n for n in ['Read/Write', 'Direction'] if n in df.columns), None)
-    current_mapping = COLUMN_MAPPING.copy()
-    if access_col_name:
-        current_mapping[access_col_name] = 'access_type'
-    df.rename(columns=current_mapping, inplace=True, errors='ignore')
-    return df
-
-
-def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
-    """Procesa los permisos de lectura/escritura según el tipo y permisos declarados."""
-    df['read'] = 0
-    df['write'] = 0
-
-    if 'access_type' in df.columns and 'system_category' in df.columns:
-        access = df['access_type'].astype(str).str.upper().str.strip()
-        system_type = df['system_category'].astype(str).str.upper().str.strip()
-
-        # Solo "R"
-        only_read_mask = access == 'R'
-        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER']), 'read'] = 3
-        df.loc[only_read_mask & system_type.isin(['DIGITAL']), 'read'] = 1
-        df.loc[only_read_mask & system_type.isin(['ANALOG', 'INTEGER', 'DIGITAL']), 'write'] = 0
-
-        # "R/W"
-        read_write_mask = access == 'R/W'
-        df.loc[read_write_mask & (system_type == 'ANALOG'), ['read', 'write']] = [3, 6]
-        df.loc[read_write_mask & (system_type == 'INTEGER'), ['read', 'write']] = [3, 6]
-        df.loc[read_write_mask & (system_type == 'DIGITAL'), ['read', 'write']] = [1, 5]
-
-        df.drop(columns=['access_type'], inplace=True, errors='ignore')
-
-    return df
-
-
-def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
-    if 'offset' in df.columns:
-        df['offset'] = pd.to_numeric(
-            df['offset'].astype(str).str.strip().replace(['', '---', 'nan'], np.nan),
-            errors='coerce'
-        ).fillna(0.0)
-
-    if 'unit' in df.columns:
-        df['unit'] = df['unit'].astype(str).str.strip().replace(['0', '---', None], np.nan).fillna(' ')
-
-    if 'category' in df.columns:
-        df['category'] = df['category'].astype(str).str.upper().str.strip()
-        df.loc[df['category'] == 'ALARMS', 'system_category'] = 'ALARM'
-
-    if 'name' in df.columns:
-        alarm_name_mask = df['name'].astype(str).str.contains('Al', na=False)
-        df.loc[alarm_name_mask, 'system_category'] = "ALARM"
-
-    if 'system_category' in df.columns:
-        df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
-
-    for col in ['minvalue', 'maxvalue']:
-        if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.strip().replace(['', '---', 'nan'], np.nan),
-                errors='coerce'
-            )
-
-    return df
-
-
-def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
-    df['length'] = '16bit'
-    if 'minvalue' in df.columns and 'maxvalue' in df.columns:
-        df.loc[(df['minvalue'] < 0) | (df['maxvalue'] < 0), 'length'] = 's16'
-    return df
-
-
-def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
-    """Clasificación profunda de categorías de sistema."""
-    if 'system_category' not in df.columns:
-        df['system_category'] = 'STATUS'
-
-    df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
-
-    is_writeable = df['write'] > 0
-    is_readable = df['read'] > 0
-    is_read_only = (df['read'] > 0) & (df['write'] == 0)
-    is_alarm = df['system_category'] == 'ALARM'
-
-    is_analog = df['system_category'].isin(['ANALOG', 'ANALOG_INPUT', 'ANALOG_OUTPUT'])
-    is_integer = df['system_category'].isin(['INTEGER'])
-    is_digital = df['system_category'].isin(['DIGITAL', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'])
-
-    conditions_new_cat = [
-        (is_alarm),
-        (is_analog) & (is_writeable) & (is_readable),
-        (is_integer) & (is_writeable) & (is_readable),
-        (is_analog | is_integer | is_digital) & (is_read_only),
-        (is_digital) & (is_writeable) & (is_readable),
-    ]
-
-    choices_new_cat = [
-        'ALARM',
-        'SET_POINT',
-        'CONFIG_PARAMETER',
-        'DEFAULT',
-        'COMMAND',
-    ]
-
-    df['system_category'] = np.select(conditions_new_cat, choices_new_cat, default='STATUS')
-    return df
-
-
-def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
-    """Asigna valores de 'sampling' según la categoría final del sistema."""
-    sampling_rules = {
-        'ALARM': 30,
-        'SET_POINT': 300,
-        'CONFIG_PARAMETER': 0,
-        'DEFAULT': 60,
-        'COMMAND': 0,
-    }
-
-    if 'sampling' not in df.columns:
-        df['sampling'] = 60  # valor por defecto
-
-    for category, value in sampling_rules.items():
-        df.loc[df['system_category'] == category, 'sampling'] = value
-
-    return df
-
-
-def _add_default_columns(df: pd.DataFrame) -> pd.DataFrame:
-    defaults = {
-        "addition": 0,
-        "mask": 0,
-        "value": 0,
-        "alarm": """ {"severity":"none"} """,
-        "metadata": "[]",
-        "l10n": '{"_type":"l10n","default_lang":"en_US","translations":{"en_US":{"name":null,"_type":"languages","description":null}}}',
-        "tags": "[]",
-        "type": "modbus",
-    }
-
-    for col, val in defaults.items():
-        if col not in df.columns:
-            df[col] = val
-    return df
-
-
 # =====================================================
-# PUNTO DE ENTRADA
+# FUNCIÓN PRINCIPAL
 # =====================================================
 
 def main():
-    logger.info("Inicializando aplicación")
-    ui_controller = HTMLConverterUI(process_html_callback=process_html)
+    """Inicializa la interfaz y conecta el procesamiento al backend elegido."""
+    logger.info("Inicializando interfaz Conversor Universal...")
+
+    def process_with_backend(file_bytes):
+        backend = ui_controller.backend_selected
+        filename = ui_controller.uploaded_file_name or "desconocido"   # ✅ nombre del archivo
+        if not backend:
+            ui.notify("Selecciona un backend antes de procesar el archivo.", type="warning")
+            return None
+        return unified_process_file(backend, filename, file_bytes)
+
+    # Crear interfaz con el callback adaptado
+    ui_controller = HTMLConverterUI(process_html_callback=process_with_backend)
     ui_controller.create_ui()
-    logger.info("Aplicación iniciada correctamente")
+
+    logger.info("Interfaz creada correctamente.")
 
 
-main()
+# =====================================================
+# EJECUCIÓN DE LA APLICACIÓN
+# =====================================================
+
+main()  # Crea la interfaz
 
 if __name__ in {'__main__', '__mp_main__'}:
-    ui.run(title="Conversor HTML a Excel", reload=True)
+    ui.run(title="Conversor Universal - Keyter / iPro", reload=True)

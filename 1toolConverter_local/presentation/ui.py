@@ -19,7 +19,7 @@ class HTMLConverterUI:
 
     def __init__(self, process_html_callback):
         self.process_html_callback = process_html_callback
-
+        self.uploaded_file_name: Optional[str] = None
         self.pagination_main = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
         self.pagination_group = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
 
@@ -28,22 +28,24 @@ class HTMLConverterUI:
         self.uploaded_file_content: Optional[bytes] = None
         self.processed_data: Optional[pd.DataFrame] = None
         self.grouped_data: Optional[pd.DataFrame] = pd.DataFrame()
+        self.backend_selected: Optional[str] = None  
 
         # Componentes UI
+        self.backend_selector = None   
+        self.upload_component = None   
         self.process_button = None
         self.table = None
         self.table_card = None
         self.group_selector = None
         self.assign_button = None
         self.selected_rows = []
-
-        # Segunda tabla
         self.group_table = None
         self.group_table_card = None
         self.delete_rows_button = None
         self.clear_table_button = None
         self.download_button = None
         self.selected_group_rows = []
+
 
     async def handle_upload(self, e):
         try:
@@ -60,13 +62,16 @@ class HTMLConverterUI:
             if self.group_table_card:
                 self.group_table_card.visible = False
 
+            self.uploaded_file_name = e.file.name  # Guarda el nombre del archivo
+
+
             ui.notify(f"Archivo '{e.file.name}' cargado correctamente.", type='positive')
 
         except Exception as ex:
             logger.error(f"Error al cargar archivo: {ex}", exc_info=True)
             ui.notify(f"Error al cargar archivo: {ex}", type='negative')
 
-    def process_file(self):
+    def process_file(self, e):
         if self.uploaded_file_content is None:
             ui.notify("No hay archivo para procesar.", type='negative')
             return
@@ -76,6 +81,8 @@ class HTMLConverterUI:
         self.grouped_data = pd.DataFrame()
         self.selected_rows = []
         self.selected_group_rows = []
+        self.reset_search_input(e)
+        self.reset_group_search_input(e)
         
         # Limpiar contenido visual de tablas
         if self.table:
@@ -101,22 +108,31 @@ class HTMLConverterUI:
         if df is not None and not df.empty:
             self.processed_data = df
 
-            # --- 🟢 NUEVO: Detectar filas ya clasificadas ---
-            valid_groups = [
+            # --- Detectar filas ya clasificadas ---
+            valid_groups1 = [
                 'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS',
+                'SYSTEM'
             ]
 
-            auto_grouped = df[df['system_category'].isin(valid_groups)].copy()
+            valid_groups2 = [
+                'basic', 'primary'
+            ]
 
-            if not auto_grouped.empty:
-                self.grouped_data = auto_grouped.reset_index(drop=True)
+            auto_grouped1 = df[df['system_category'].isin(valid_groups1)]
+            auto_grouped2 = df[df['view'].isin(valid_groups2)]
+
+            # Combinar ambos sin duplicados
+            combined_grouped = pd.concat([auto_grouped1, auto_grouped2]).drop_duplicates()
+
+            if not combined_grouped.empty:
+                self.grouped_data = combined_grouped.reset_index(drop=True)
                 ui.notify(
-                    f"{len(auto_grouped)} variables clasificadas detectadas automáticamente.",
+                    f"{len(combined_grouped)} variables clasificadas detectadas automáticamente.",
                     type='positive',
                     timeout=2.5
                 )
-
+                
             if self.download_button:
                 self.download_button.enable()
 
@@ -155,7 +171,7 @@ class HTMLConverterUI:
 
 
         cols = ["id", "estado", "register", "name", "description", "system_category",
-                "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
+                "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
 
@@ -193,6 +209,9 @@ class HTMLConverterUI:
 
             if 'category' in df_to_export.columns:
                 df_to_export['category'] = np.nan
+            
+            if 'category' in df_to_export.columns:
+                df_to_export['id']=np.nan
 
             with NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
                 with pd.ExcelWriter(tmp.name, engine='openpyxl') as writer:
@@ -229,29 +248,158 @@ class HTMLConverterUI:
         .q-table__container {
             max-height: 600px;
         }
-                          
         </style>
         """)
 
         with ui.header().classes('items-center justify-between'):
-            ui.label('Conversor HTML a Parámetros').classes('text-xl font-bold')
+            ui.label('Creador de librerias').classes('text-xl font-bold')
 
         with ui.column().classes('w-full p-4 md:p-8 items-center gap-8'):
+            # 🆕 NUEVO: Selector de backend al inicio
+            with ui.card().classes('w-full max-w-2xl'):
+                ui.label('0. Seleccionar Backend').classes('text-lg font-bold')
+                ui.separator()
+                self.backend_selector = ui.select(
+                    options=['Keyter', 'iPro', 'Cefa'],
+                    label='Selecciona el backend',
+                    on_change=self.handle_backend_selection
+                ).props('outlined dense clearable').classes('w-64')
+
             self._create_upload_section()
             self._create_process_section()
             self._create_table_section()
             self._create_group_table_section()
 
-    def _create_upload_section(self):
-        with ui.card().classes('w-full max-w-2xl'):
-            ui.label('1. Cargar Archivo HTML').classes('text-lg font-bold')
-            ui.separator()
-            upload = ui.upload(
-                label='Seleccionar o arrastrar archivo HTML',
+            # 🆕 Desactivar todo hasta elegir backend
+            if self.process_button:
+                self.process_button.disable()
+            if self.upload_component:
+                self.upload_component.disable()
+            if self.table_card:
+                self.table_card.visible = False
+            if self.group_table_card:
+                self.group_table_card.visible = False
+
+    def handle_backend_selection(self, e):
+        """🆕 Activa o desactiva la UI según el backend seleccionado."""
+        backend = e.value
+        self.backend_selected = backend
+
+        # 🔹 Reiniciar interfaz al cambiar de backend
+        self._reset_ui_state()
+
+        # 🔹 Reiniciar también los filtros de búsqueda
+        try:
+            self.reset_search_input(e)
+            self.reset_group_search_input(e)
+        except Exception as ex:
+            logger.warning(f"No se pudieron reiniciar los filtros de búsqueda: {ex}")
+
+        if not backend:
+            ui.notify("Selecciona un backend para continuar.", type='warning')
+            if self.upload_component:
+                self.upload_component.disable()
+            if self.process_button:
+                self.process_button.disable()
+            return
+
+        # Configurar tipo de archivo permitido según backend
+        if backend == 'Keyter':
+            file_accept = '.xlsx,.xls,.xlsm,.html,.htm'
+        elif backend == 'iPro':
+            file_accept = '.xlsx'
+        elif backend == 'Cefa':
+            file_accept = '.pdf'
+        elif backend == 'General':
+            file_accept = '.xlsx,.xls,.xlsm,.html,.htm,.pdf'
+        else:
+            file_accept = ''
+
+        if self.upload_component:
+            self.upload_component.enable()
+            self.upload_component.props(f'accept="{file_accept}"')
+
+        ui.notify(
+            f"Backend seleccionado: {backend}. Ahora puedes subir un archivo {file_accept}.",
+            type='positive'
+        )
+
+
+
+    def _reset_ui_state(self):
+        """Reinicia el estado de la interfaz al cambiar de backend."""
+        # Limpiar archivo subido
+        self.uploaded_file_content = None
+
+        # Limpiar DataFrames
+        self.processed_data = None
+        self.grouped_data = pd.DataFrame()
+
+        # Limpiar tablas visuales
+        if self.table:
+            self.table.rows = []
+            self.table.update()
+
+        if self.group_table:
+            self.group_table.rows = []
+            self.group_table.update()
+
+        # Ocultar las tarjetas
+        if self.table_card:
+            self.table_card.visible = False
+        if self.group_table_card:
+            self.group_table_card.visible = False
+
+        # Deshabilitar botones
+        if self.download_button:
+            self.download_button.disable()
+        if self.process_button:
+            self.process_button.disable()
+        
+        self._recreate_upload_component()
+
+        ui.notify("Interfaz reiniciada tras cambiar de backend.", type='info', timeout=2.5)
+
+    def _recreate_upload_component(self):
+        """Recrea el componente de subida para limpiar archivos cargados y mantener el estilo."""
+        if hasattr(self, "upload_container"):
+            self.upload_container.clear()  # Limpia el contenedor anterior
+
+        with self.upload_container:
+
+            self.upload_component = ui.upload(
+                label="Seleccionar o arrastrar archivo aquí",
                 auto_upload=True,
-                max_files=1
-            ).props('accept=".html"').classes('w-full')
-            upload.on_upload(self.handle_upload)
+                max_files=1,
+            ).props('flat bordered square no-wrap').classes(
+                'w-96 h-32 justify-left items-left text-center bg-gray-50 hover:bg-gray-100 rounded-2xl border border-gray-300'
+            )
+
+            self.upload_component.on_upload(self.handle_upload)
+
+            if self.backend_selected == "Keyter":
+                self.upload_component.props('accept=".xls",".xlsx",".xlsm",".html",".htm"')
+            elif self.backend_selected == "iPro":
+                self.upload_component.props('accept=".xlsx"')
+            elif self.backend_selected == "Cefa":
+                self.upload_component.props('accept=".pdf"')
+            elif self.backend_selected == "General":
+                self.upload_component.props('accept=".xls",".xlsx",".xlsm",".html",".htm",".pdf"')
+            else:
+                self.upload_component.disable()
+
+
+
+    def _create_upload_section(self):
+        with ui.card().classes('w-full max-w-2xl mx-auto p-4'):
+            ui.label('1. Cargar Archivo').classes('text-lg font-bold mb-2')
+            ui.separator()
+
+            # 🔹 Contenedor dinámico del upload
+            self.upload_container = ui.column().classes('w-full items-left justify-left')
+            self._recreate_upload_component()
+
+
 
     def _create_process_section(self):
         with ui.card().classes('w-full max-w-2xl'):
@@ -262,18 +410,102 @@ class HTMLConverterUI:
                     on_click=self.process_file,
                     icon='play_for_work'
                 )
-                self.process_button.disable()  # se habilita al subir archivo
+                self.process_button.disable()
+
+    def add_editable_slot(
+        self,
+        field_name: str,
+        label: str,
+        input_type: str = "text",
+        max_length: int = 60,
+        style_overrides: dict | str | None = None,
+        input_style: str = "width: auto; min-width: 1ch; font: inherit;",
+        validator=None,
+        placeholder: str | None = None,
+    ):
+        event_name = f"{field_name}-change"
+        slot_name = f"body-cell-{field_name}"
+
+        # --- Convertir estilos a string si es dict ---
+        if isinstance(style_overrides, dict):
+            style_str = "; ".join(f"{k}: {v}" for k, v in style_overrides.items())
+        elif isinstance(style_overrides, str):
+            style_str = style_overrides
+        else:
+            style_str = "width: fit-content; min-width: 1ch; max-width: 100%;"
+
+        # --- Definir placeholder dinámico ---
+        placeholder_text = placeholder or ""
+        # --- Construir HTML dinámicamente ---
+        slot_html = f"""
+<q-td :props="props">
+  <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+
+    <!-- Primera fila: input -->
+    <div style="display: flex; flex-direction: row; align-items: center; width: 100%;">
+      <q-input
+        dense
+        outlined
+        type="{input_type}"
+        v-model="props.row.{field_name}"
+        placeholder="{placeholder_text}"
+        maxlength="{max_length}"
+        style="{style_str}"
+        input-style="{input_style}"
+      />
+    </div>
+
+    <!-- Segunda fila: botón -->
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px;">
+      <q-btn
+        dense
+        flat
+        round
+        color="positive"
+        icon="check"
+        size="sm"
+        @click="$parent.$emit('{event_name}', props.row)"
+      />
+    </div>
+
+  </div>
+</q-td>
+"""
+        # --- Registrar el slot ---
+        self.table.add_slot(slot_name, slot_html)
+
+        # --- Envolver el handler con validación ---
+        def wrapped_handler(e, fn=field_name, lbl=label):
+            # Validar antes de procesar
+            if validator:
+                args = getattr(e, 'args', e)
+                row = args if isinstance(args, dict) else args[0]
+                val = row.get(fn)
+                result = validator(val)
+                if result is False:
+                    ui.notify(f"Valor inválido para {lbl}", type='warning')
+                    return
+                elif isinstance(result, str):
+                    ui.notify(result, type='warning')
+                    return
+            self.handle_field_change(e, fn, lbl)
+
+        # --- Vincular evento ---
+        self.table.on(event_name, wrapped_handler)
+
+        logger.info(f"✅ Slot editable '{field_name}' registrado (tipo={input_type})")
+
 
     def _create_table_section(self):
-        with ui.card().classes('w-full max-w-6xl') as table_card:
+        with ui.card().classes('w-full') as table_card:
             ui.label("3. Tabla de Parámetros").classes('text-lg font-bold')
             ui.separator()
 
             self.table_card = table_card
             self.table_card.visible = False
 
-            cols = ["id", "register", "name", "description", "system_category",
-                    "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
+            cols = ["id", "register", "name", "description",
+                    "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
             # Selector de columna + campo de búsqueda
             with ui.row().classes('mt-2 mb-2 items-center gap-2'):
@@ -283,6 +515,7 @@ class HTMLConverterUI:
                     options=['register', 'name', 'description', 'system_category'],
                     value='name',
                     label='Columna',
+                    on_change= self.reset_search_input
                 ).props('dense outlined').classes('w-48')
 
                 self.search_input = ui.input(
@@ -297,7 +530,7 @@ class HTMLConverterUI:
                 self.category_filter = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT'
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'
                     ],
                     multiple=True,
                     label='Selecciona grupos',
@@ -313,43 +546,195 @@ class HTMLConverterUI:
                 selection='multiple',
                 pagination=self.pagination_main,
                 on_pagination_change=self.handle_main_pagination,
-            ).classes('w-full h-96').props('flat bordered dense')
+            ).classes('w-full').style('transform: scale(0.9); transform-origin: top center;').props('flat bordered dense')
 
             self.table.on('selection', self.handle_selection)
 
-            # --- Icono de estado colorido ---
+            # --- Selector desplegable (drop-down) en la columna "estado" ---
+            # Usamos un slot de la tabla para renderizar un QSelect por fila.
+            # Al actualizar el valor emitimos un evento 'estado-change' que manejamos en Python
             self.table.add_slot('body-cell-estado', '''
-                <q-td key="estado" :props="props">
-                    <template v-if="props.row.system_category">
-                        <div style="font-size: 12px; display: flex; align-items: center;">
-                            <q-icon
-                                name="check_circle"
-                                :color="{
-                                    'ALARM': 'red',
-                                    'SET_POINT': 'blue',
-                                    'CONFIG_PARAMETER': 'orange',
-                                    'COMMAND': 'purple',
-                                    'ANALOG_INPUT': 'teal',
-                                    'ANALOG_OUTPUT': 'cyan',
-                                    'DIGITAL_INPUT': 'amber',
-                                    'DIGITAL_OUTPUT': 'green'
-                                }[props.row.system_category] || 'grey'"
-                                size="xs"
-                                class="q-mr-xs"
-                            />
-                            <span>{{ props.row.system_category }}</span>
-                        </div>
-                    </template>
-                    <span v-else style="font-size: 12px;">—</span>
-                </q-td>
-            ''')
+    <q-td key="estado" :props="props">
+        <q-select
+            v-model="props.row.system_category"
+            :options="[
+                'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
+            ]"
+            dense filled outlined emit-value map-options
+            @update:model-value="$parent.$emit('estado-change', props.row)"
+            popup-content-class="bg-white text-black"
+        >
+            <template v-slot:selected-item="scope">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <div :style="{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontSize: '12px',
+                        backgroundColor: ({
+                            'ALARM': 'red',
+                            'SET_POINT': '#0E57E8',
+                            'CONFIG_PARAMETER': '#1CCDD6',
+                            'COMMAND': 'purple',
+                            'ANALOG_INPUT': '#00E343',
+                            'ANALOG_OUTPUT': '#13662C',
+                            'DIGITAL_INPUT': 'blue',
+                            'DIGITAL_OUTPUT': 'black',
+                            'STATUS': '#1F6E6E',
+                            'SYSTEM': '#C6B132'
+                        }[props.row.system_category] || 'grey')
+                    }">
+                        {{ props.row.system_category.charAt(0) }}
+                    </div>
+                    <span>{{ props.row.system_category }}</span>
+                </div>
+            </template>
+        </q-select>
+    </q-td>
+''')
+
+            # Registrar el manejador del evento emitido desde el slot
+            self.table.on('estado-change', self.handle_estado_change)
+
+            self.table.add_slot('body-cell-view', '''
+    <q-td key="estado" :props="props">
+        <q-select
+            v-model="props.row.view"
+            :options="[
+                'basic', 'simple', 'primary'
+            ]"
+            dense filled outlined emit-value map-options
+            @update:model-value="$parent.$emit('view-change', props.row)"
+            popup-content-class="bg-white text-black"
+        >
+            <template v-slot:selected-item="scope">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <div :style="{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontSize: '12px',
+                        backgroundColor: ({
+                            'basic': 'black',
+                            'primary': 'blue',
+                                 'simple':  'teal'
+                        }[props.row.view] || 'grey')
+                    }">
+                        {{ props.row.view.charAt(0) }}
+                    </div>
+                    <span>{{ props.row.view }}</span>
+                </div>
+            </template>
+        </q-select>
+    </q-td>
+''')
+            # Registrar el manejador del evento emitido desde el slot
+            self.table.on('view-change', self.handle_view_change)
+
+            # Slots editables
+            self.add_editable_slot(
+                'register', 
+                'Register', 
+                input_type='number', 
+                max_length=60, 
+                style_overrides={'width': '80px'},
+                input_style="width: 100%; text-align: left;",
+                placeholder= "Add"
+            )
+
+            self.add_editable_slot(
+                'read', 
+                'Read', 
+                input_type='number', 
+                max_length=60, 
+                style_overrides={'width': 'auto'},
+                input_style="width: auto text-align: left; min-width: 50px;",
+                placeholder= "Add"
+            )
+
+            self.add_editable_slot(
+                'write', 
+                'Write', 
+                input_type='number', 
+                max_length=60, 
+                style_overrides={'width': 'auto'},
+                input_style="width: auto text-align: left; min-width: 50px;",
+                placeholder= "Add"
+            )
+
+            self.add_editable_slot(
+                'sampling', 
+                'Sampling', 
+                input_type='number', 
+                max_length=60, 
+                style_overrides={'width': 'auto'},
+                input_style="width: auto text-align: left; min-width: 50px;",
+                placeholder= "Add"
+            )
+
+            self.add_editable_slot(
+                'minvalue', 
+                'Minvalue', 
+                input_type='number', 
+                max_length=60, 
+                style_overrides={'width': 'auto'},
+                input_style="width: auto text-align: left; min-width: 50px;",
+                placeholder= "Add"
+            )
+
+            self.add_editable_slot(
+                'maxvalue', 
+                'Maxvalue', 
+                input_type='number', 
+                max_length=60, 
+                style_overrides={'width': 'auto'},
+                input_style="width: auto text-align: left; min-width: 50px;",
+                placeholder= "Add"
+            )
+
+            self.add_editable_slot(
+                'unit', 
+                'Unit', 
+                input_type='text', 
+                max_length=60, 
+                style_overrides={'width': 'auto'},
+                input_style="width: auto text-align: left; min-width: 50px;",
+                placeholder= "°C"
+            )
+
+            self.add_editable_slot(
+                'description', 
+                'Description', 
+                input_type='text', 
+                max_length=60, 
+                style_overrides={'width': '150px'},
+                placeholder= "Add"
+            )
+
+            self.add_editable_slot(
+                'name', 
+                'Nombre', 
+                input_type='text', 
+                max_length=60, 
+                style_overrides={'width': '150px'},
+                placeholder= "Add"
+            )
 
             # --- Controles debajo de la tabla ---
             with ui.row().classes('mt-4 items-center gap-4'):
                 self.group_selector = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT'
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
                     ],
                     label='Asignar a grupo',
                 ).props('dense')
@@ -358,6 +743,8 @@ class HTMLConverterUI:
                     'Asignar grupo',
                     on_click=self.assign_group_to_selection
                 )
+        self.table.on('click', lambda e: logger.info("✅ Evento click detectado en tabla"))
+
 
             
 
@@ -374,6 +761,7 @@ class HTMLConverterUI:
                     options=['register', 'name', 'description', 'system_category'],
                     value='name',
                     label='Columna',
+                    on_change= self.reset_group_search_input
                 ).props('dense outlined').classes('w-48')
 
                 self.group_search_input = ui.input(
@@ -387,7 +775,7 @@ class HTMLConverterUI:
                 self.group_category_filter = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT'
+                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'
                     ],
                     multiple=True,
                     label='Selecciona grupos',
@@ -532,6 +920,20 @@ class HTMLConverterUI:
             # Asignar nuevo grupo
             selected_rows_df['system_category'] = group
 
+            # Si se asigna STATUS, poner view como basic
+            if group == 'STATUS':
+                selected_rows_df['view'] = 'basic'
+                self.processed_data.loc[
+                    self.processed_data['id'].astype(str).isin(selected_as_str), 'view'
+                ] = 'basic'
+            
+            if group == 'ALARM':
+                selected_rows_df['view'] = np.nan
+                self.processed_data.loc[
+                    self.processed_data['id'].astype(str).isin(selected_as_str), 'view'
+                ] = np.nan
+
+
             # Si la tabla de grupos está vacía, se inicializa
             if self.grouped_data is None or self.grouped_data.empty:
                 self.grouped_data = selected_rows_df
@@ -551,7 +953,7 @@ class HTMLConverterUI:
 
                 # Agregar filas nuevas o actualizadas
                 self.grouped_data = pd.concat(
-                    [self.grouped_data, selected_rows_df],
+                    [selected_rows_df, self.grouped_data],
                     ignore_index=True
                 )
 
@@ -600,7 +1002,7 @@ class HTMLConverterUI:
             deleted = before_count - after_count
             
             ui.notify(f'Se eliminaron {deleted} fila(s).', type='positive')
-        
+       
         except Exception as ex:
             logger.exception(f"Error al eliminar filas: {ex}")
             ui.notify(f"Error al eliminar filas: {ex}", type='negative')
@@ -623,7 +1025,7 @@ class HTMLConverterUI:
 
         if self.grouped_data is not None and not self.grouped_data.empty:
             cols = ["id", "register", "name", "description", "system_category",
-                "read", "write", "sampling", "minvalue", "maxvalue", "unit"]
+                "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
             self.group_table.columns = [
                 {'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True}
@@ -771,6 +1173,273 @@ class HTMLConverterUI:
             logger.exception(f"Error al aplicar filtro por categoría en tabla de grupos: {ex}")
             ui.notify(f"Error al aplicar filtro por categoría: {ex}", type='negative')
 
+    def handle_estado_change(self, e):
+        """Maneja el evento cuando cambia el estado (categoría del sistema)."""
+        try:
+            args = getattr(e, 'args', e)
+            row = args if isinstance(args, dict) else args[0] if isinstance(args, (list, tuple)) and len(args) > 0 else None
+            if not row or 'id' not in row:
+                logger.debug('Evento estado-change sin payload válido')
+                return
+
+            row_id = str(row.get('id'))
+            new_group = row.get('system_category')
+
+            if self.processed_data is None:
+                logger.debug('No hay datos procesados al cambiar estado')
+                return
+
+            # === Actualizar categoría ===
+            self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'system_category'] = new_group
+
+            # === Detectar backend activo ===
+            backend = getattr(self, "backend_selected", "ipro").lower()
+
+            # === Asignar permisos según backend ===
+            read_val, write_val = 0, 0
+
+            if backend == "ipro":
+                permission_map = {
+                    'ALARM': (1, 0),
+                    'STATUS': (3, 0),
+                    'SET_POINT': (3, 16),
+                    'CONFIG_PARAMETER': (3, 16),
+                    'COMMAND': (3, 16),
+                    'ANALOG_INPUT': (3, 0),
+                    'ANALOG_OUTPUT': (3, 0),
+                    'DIGITAL_INPUT': (1, 0),
+                    'DIGITAL_OUTPUT': (3, 16),
+                    'SYSTEM': (3, 0)
+                    }
+                read_val, write_val = permission_map.get(new_group, (0, 0))
+
+            elif backend == "cefa":
+                # Valores típicos de permisos CEFA (ajústalos según la lógica real)
+                permission_map = {
+                    'ALARM': (1, 0),
+                    'STATUS': (3, 0),
+                    'SET_POINT': (3, 6),
+                    'CONFIG_PARAMETER': (1, 6),
+                    'COMMAND': (1, 5),
+                    'ANALOG_INPUT': (3, 0),
+                    'ANALOG_OUTPUT': (3, 0),
+                    'DIGITAL_INPUT': (1, 0),
+                    'DIGITAL_OUTPUT': (1, 5),
+                    'SYSTEM': (3, 0)
+                    }
+                read_val, write_val = permission_map.get(new_group, (0, 0))
+
+            elif backend == "keyter":
+                    permission_map = {
+                        'ALARM': (1, 0),
+                        'STATUS': (3, 0),
+                        'SET_POINT': (3, 6),
+                        'CONFIG_PARAMETER': (1, 5),
+                        'COMMAND': (1, 5),
+                        'ANALOG_INPUT': (3, 0),
+                        'ANALOG_OUTPUT': (3, 0),
+                        'DIGITAL_INPUT': (1, 0),
+                        'DIGITAL_OUTPUT': (1, 5),
+                        'SYSTEM': (3, 0)
+                    }
+                    read_val, write_val = permission_map.get(new_group, (0, 0))
+            else:  # Excel o genérico
+                    permission_map = {
+                    'ALARM': (1, 0),
+                    'STATUS': (3, 0),
+                    'SET_POINT': (3, 6),
+                    'CONFIG_PARAMETER': (1, 7),
+                    'COMMAND': (1, 5),
+                    'ANALOG_INPUT': (3, 0),
+                    'ANALOG_OUTPUT': (3, 0),
+                    'DIGITAL_INPUT': (1, 0),
+                    'DIGITAL_OUTPUT': (1, 5),
+                    'SYSTEM': (3, 0)
+                    }
+                    read_val, write_val = permission_map.get(new_group, (0, 0))
+
+            # === Aplicar permisos ===
+            self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, ['read', 'write']] = (read_val, write_val)
+
+            # === Ajustes visuales ===
+            if new_group == 'STATUS':
+                self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'view'] = 'basic'
+            elif new_group == 'ALARM':
+                self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'view'] = 'simple'
+
+                # === Asignar valor de sampling ===
+            mapping = {
+                "ALARM": 30,
+                "SET_POINT": 300,
+                "DEFAULT": 0,
+                "COMMAND": 0,
+                "STATUS": 60,
+                "SYSTEM": 0,
+                "CONFIG_PARAMETER": 0
+            }
+
+            sampling_val = mapping.get(new_group, mapping["DEFAULT"])
+
+            # === Aplicar valor de sampling ===
+            self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'sampling'] = sampling_val
+            
+
+            # === Actualizar grouped_data ===
+            selected_row_df = self.processed_data.loc[self.processed_data['id'].astype(str) == row_id].copy()
+            selected_row_df = selected_row_df.reindex(columns=self.grouped_data.columns, fill_value=np.nan)
+            self.grouped_data = self.grouped_data[~self.grouped_data['id'].astype(str).isin([row_id])]
+            self.grouped_data = pd.concat([selected_row_df, self.grouped_data], ignore_index=True)
+
+            # === Actualizar interfaz ===
+            self.update_group_table()
+            self.display_table()
+            ui.notify(f'Fila {row_id} clasificada como {new_group} ({backend.upper()}).', type='positive')
+
+        except Exception as e:
+            logger.error(f"Error en handle_estado_change: {e}", exc_info=True)
 
 
 
+    
+    def handle_view_change(self, e):
+        """Maneja el evento emitido desde el slot 'estado' cuando se cambia el dropdown.
+        El payload esperado contiene la fila completa (props.row)."""
+        try:
+            args = getattr(e, 'args', e)
+            row = None
+            if isinstance(args, dict):
+                row = args
+            elif isinstance(args, (list, tuple)) and len(args) > 0 and isinstance(args[0], dict):
+                row = args[0]
+
+            if not row or 'id' not in row:
+                logger.debug('Evento view-change sin payload válido')
+                return
+
+            row_id = str(row.get('id'))
+            new_view = row.get('view')
+
+            if self.processed_data is None:
+                return
+
+            # ✅ Si se selecciona "primary", removerlo de otras filas.
+            if new_view == 'primary':
+                # Encontrar cualquier fila que tenga "primary" excepto la actual
+                mask_primary = (
+                    (self.processed_data['view'] == 'primary') &
+                    (self.processed_data['id'].astype(str) != row_id)
+                )
+
+                # Cambiar esas vistas a "simple"
+                self.processed_data.loc[mask_primary, 'view'] = 'simple'
+
+            # ✅ Ahora aplicar el nuevo valor a la fila actual
+            self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'view'] = new_view
+
+            # Reconstruir dataframe de la fila actualizada
+            selected_row_df = self.processed_data.loc[self.processed_data['id'].astype(str) == row_id].copy()
+
+            if selected_row_df.empty:
+                return
+
+           # ✅ Sincronizar grouped_data con los cambios en processed_data (especialmente para el caso "primary")
+            if self.grouped_data is not None and not self.grouped_data.empty:
+                # Actualizamos todas las vistas desde processed_data
+                self.grouped_data['view'] = self.grouped_data['id'].astype(str).map(
+                    dict(zip(self.processed_data['id'].astype(str), self.processed_data['view']))
+                )
+
+            # ✅ Agregar o reemplazar solo la fila actualizada
+            if self.grouped_data is None or self.grouped_data.empty:
+                self.grouped_data = selected_row_df
+            else:
+                all_cols = list(self.grouped_data.columns)
+                selected_row_df = selected_row_df.reindex(columns=all_cols, fill_value=np.nan)
+
+                self.grouped_data['id'] = self.grouped_data['id'].astype(str)
+                selected_row_df['id'] = selected_row_df['id'].astype(str)
+
+                self.grouped_data = self.grouped_data[~self.grouped_data['id'].isin(selected_row_df['id'])]
+                self.grouped_data = pd.concat([selected_row_df, self.grouped_data], ignore_index=True)
+
+
+            # ✅ Refrescar tablas
+            self.update_group_table()
+            self.display_table()
+
+            ui.notify(f'Fila {row_id} ahora tiene vista "{new_view}".', type='positive')
+
+        except Exception as ex:
+            logger.exception(f"Error manejando cambio de vista: {ex}")
+            ui.notify(f"Error manejando cambio de vista: {ex}", type='negative')
+
+    def reset_search_input(self, e):
+        """Limpia el cuadro de búsqueda y restaura la tabla principal al cambiar de columna."""
+        logger.info("🧩 Ejecutando reset_search_search_input...")
+        if self.search_input:
+            self.search_input.value = ''
+        if self.processed_data is not None and not self.processed_data.empty:
+            self.table.rows = self.processed_data.to_dict('records')
+            self.table.update()
+        
+
+    def reset_group_search_input(self, e):
+        """Limpia el cuadro de búsqueda y restaura la tabla de grupos al cambiar de columna."""
+        logger.info("🧩 Ejecutando reset_group_search_input...")
+        if self.group_search_input:
+            self.group_search_input.value = ''
+        if self.grouped_data is not None and not self.grouped_data.empty:
+            self.group_table.rows = self.grouped_data.to_dict('records')
+            self.group_table.update()
+    
+    def handle_field_change(self, e, field_name: str, label: str = None):
+        """Manejador genérico para cambios en un campo editable de la tabla."""
+        try:
+            logger.info(f"🟢 [handle_field_change:{field_name}] Evento recibido.")
+            logger.info(f"Contenido bruto del evento: {repr(e)}")
+
+            # --- Extraer fila del evento ---
+            args = getattr(e, 'args', e)
+            if isinstance(args, dict):
+                row = args
+            elif isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
+                row = args[0]
+            else:
+                ui.notify('Evento sin datos válidos', type='warning')
+                return
+
+            row_id = str(row.get('id'))
+            new_value = row.get(field_name, '').strip()
+            label = label or field_name.capitalize()
+
+            logger.info(f"🧾 Actualizando {label} (ID={row_id}) -> '{new_value}'")
+
+            # --- Actualizar processed_data ---
+            if self.processed_data is not None and not self.processed_data.empty:
+                mask = self.processed_data['id'].astype(str) == row_id
+                if mask.any():
+                    self.processed_data.loc[mask, field_name] = new_value
+                    logger.info(f"✅ processed_data.{field_name} actualizado")
+
+            # --- Actualizar grouped_data ---
+            if self.grouped_data is not None and not self.grouped_data.empty:
+                mask = self.grouped_data['id'].astype(str) == row_id
+                if mask.any():
+                    self.grouped_data.loc[mask, field_name] = new_value
+                    logger.info(f"✅ grouped_data.{field_name} actualizado")
+
+            # --- Actualizar visualmente la tabla ---
+            if self.table and self.table.rows:
+                for r in self.table.rows:
+                    if str(r.get('id')) == row_id:
+                        r[field_name] = new_value
+                        break
+                self.update_group_table()
+                self.display_table()
+
+            ui.notify(f"{label} actualizado (ID={row_id})", type='positive', timeout=1.5)
+
+        except Exception as ex:
+            import traceback
+            logger.error(f"❌ Error en handle_field_change({field_name}):\n" + traceback.format_exc())
+            ui.notify(f"Error actualizando {label or field_name}: {ex}", type='negative')
