@@ -127,20 +127,77 @@ def register_to_decimal(val):
     except:
         return np.nan
 
-
 def categorize_system(df: pd.DataFrame) -> pd.DataFrame:
-    """Asigna la categoría del sistema según la columna 'groups'."""
+    """Asigna la categoría del sistema según las columnas 'groups' y 'name'."""
+    
+    if 'groups' not in df.columns or 'name' not in df.columns:
+        logger.warning("El DataFrame no contiene las columnas requeridas: 'groups' o 'name'.")
+        return df
+    
+    df = df.copy()
     df['system_category'] = np.nan
-    if 'groups' in df.columns:
-        df['groups'] = df['groups'].str.upper()
-        df.loc[df['groups'].str.contains('PARAMETROS_CONFIGURACION', na=False), 'system_category'] = 'CONFIG_PARAMETER'
-        df.loc[df['groups'].str.contains('ALARMAS|WARNINGS', na=False), 'system_category'] = 'ALARM'
-        df.loc[df['groups'].str.contains('COMANDOS', na=False), 'system_category'] = 'COMMAND'
-        df.loc[df['groups'].str.contains('ESTADOS', na=False), 'system_category'] = 'STATUS'
-        df.loc[df['groups'].str.contains('ENTRADAS_SALIDAS', na=False), 'system_category'] = 'INPUT_OUTPUT'
-        df.loc[df['groups'].str.contains('INSTANCIA|REGISTRO', na=False), 'system_category'] = 'DEFAULT'
-    valid_categories = ['CONFIG_PARAMETER', 'ALARM', 'COMMAND', 'STATUS', 'INPUT_OUTPUT', 'DEFAULT']
-    return df[df['system_category'].isin(valid_categories)].reset_index(drop=True)
+
+    # --- Normalización de texto ---
+    df['groups'] = df['groups'].astype(str).str.upper()
+    df['name'] = df['name'].astype(str).str.upper()
+
+    # --- Categorización por grupos ---
+    df.loc[df['groups'].str.contains('PARAMETROS_CONFIGURACION', na=False), 'system_category'] = 'CONFIG_PARAMETER'
+    df.loc[df['groups'].str.contains('ALARMAS|WARNINGS', na=False), 'system_category'] = 'ALARM'
+    df.loc[df['groups'].str.contains('COMANDOS', na=False), 'system_category'] = 'COMMAND'
+    df.loc[df['groups'].str.contains('ESTADOS', na=False), 'system_category'] = 'STATUS'
+    df.loc[df['groups'].str.contains('INSTANCIAS|REGISTRO', na=False), 'system_category'] = 'DEFAULT'
+    df.loc[df['groups'].str.contains('SISTEMA', na=False), 'system_category'] = 'SYSTEM'
+
+    # --- Categorización por nombre ---
+    mask_ai = df['name'].str.startswith(('PB_', 'SONDAS_'), na=False)
+    df.loc[mask_ai, 'system_category'] = 'ANALOG_INPUT'
+    logger.info(f"{mask_ai.sum()} filas marcadas como ANALOG_INPUT")
+
+    mask_ao = df['name'].str.startswith(('AO_', 'SALIDA_ANALOG_'), na=False)
+    df.loc[mask_ao, 'system_category'] = 'ANALOG_OUTPUT'
+    logger.info(f"{mask_ao.sum()} filas marcadas como ANALOG_OUTPUT")
+
+    mask_di = df['name'].str.startswith('DI_', na=False)
+    df.loc[mask_di, 'system_category'] = 'DIGITAL_INPUT'
+    logger.info(f"{mask_di.sum()} filas marcadas como DIGITAL_INPUT")
+
+    mask_do = df['name'].str.startswith(('RELE_', 'RL_'), na=False)
+    df.loc[mask_do, 'system_category'] = 'DIGITAL_OUTPUT'
+    logger.info(f"{mask_do.sum()} filas marcadas como DIGITAL_OUTPUT")
+
+    #mask_ir1 = df['name'].str.startswith(('time_', 'mSET_', 'recorte'), na=False)
+    #df.loc[mask_ir1, 'system_category'] = 'CONFIG_PARAMETER'
+    #logger.info(f"{mask_ir1.sum()} filas marcadas como CONFIG_PARAMETER")
+
+    #mask_ir2 = df['name'].str.startswith(('Func_', 'INS_', 'AJUSTAR', 'reset_', 'export_'), na=False)
+    #df.loc[mask_ir2, 'system_category'] = 'COMMAND'
+    #logger.info(f"{mask_ir2.sum()} filas marcadas como COMMAND")
+
+    #mask_ir3 = df['name'].str.startswith(('en_', 'GETT', 'DATA_', 'USB_', 'P2'), na=False)
+    #df.loc[mask_ir3, 'system_category'] = 'STATUS'
+    #logger.info(f"{mask_ir3.sum()} filas marcadas como STATUS")
+
+    mask_ir4 = df['name'].str.startswith(('VERSION_'), na=False)
+    df.loc[mask_ir4, 'system_category'] = 'SYSTEM'
+    logger.info(f"{mask_ir4.sum()} filas marcadas como SYSTEM")
+
+
+    if "system_category" in df.columns:
+        system_type = df['system_category'].astype(str).str.upper().str.strip()
+        df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
+        
+    # --- Filtrado final ---
+    valid_categories = [
+        'CONFIG_PARAMETER', 'ALARM', 'COMMAND', 'STATUS', 
+        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'SYSTEM', 'DEFAULT'
+    ]
+    
+    df_filtered = df[df['system_category'].isin(valid_categories)].reset_index(drop=True)
+    logger.info(f"Total de filas categorizadas: {len(df_filtered)}")
+
+    return df_filtered
+
 
 
 def apply_min_max(df: pd.DataFrame) -> pd.DataFrame:
@@ -231,12 +288,13 @@ def _apply_mask_logic(df: pd.DataFrame) -> pd.DataFrame:
                 masks = [f"0x{1 << (k % 16):X}" for k in range(num_hijas)]
                 df.loc[hijas.index, "mask"] = masks
                 hijas_asignadas_total += num_hijas
-                logger.info(f"→ Padre '{padre_name}' ({num_hijas} hijas) → {masks}")
+                #logger.info(f"→ Padre '{padre_name}' ({num_hijas} hijas) → {masks}")
             else:
-                logger.debug(f"Padre '{padre_name}' sin hijas detectadas")
-
-    logger.info(f"=== Finalizado proceso de asignación de máscaras ===")
-    logger.info(f"Padres detectados: {padres_detectados} | Hijas asignadas: {hijas_asignadas_total}")
+                #logger.debug(f"Padre '{padre_name}' sin hijas detectadas")
+                return df
+            
+    #logger.info(f"=== Finalizado proceso de asignación de máscaras ===")
+    #logger.info(f"Padres detectados: {padres_detectados} | Hijas asignadas: {hijas_asignadas_total}")
 
     return df
 
