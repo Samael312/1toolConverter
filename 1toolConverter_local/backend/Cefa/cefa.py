@@ -33,7 +33,7 @@ COLUMN_MAPPING_PDF = {
 }
 
 DEFAULT_VALUES = {
-    "system_category": "STATUS",
+    "system_category": "DEFAULT",
     "category": "DEFAULT",
     "view": "basic",
     "sampling": 0,

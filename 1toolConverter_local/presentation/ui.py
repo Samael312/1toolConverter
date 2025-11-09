@@ -45,6 +45,7 @@ class HTMLConverterUI:
         self.clear_table_button = None
         self.download_button = None
         self.selected_group_rows = []
+        
 
 
     async def handle_upload(self, e):
@@ -730,21 +731,34 @@ class HTMLConverterUI:
             )
 
             # --- Controles debajo de la tabla ---
-            with ui.row().classes('mt-4 items-center gap-4'):
+            with ui.row().classes('mt-4 items-center gap-4 justify-start'):
                 self.group_selector = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
                         'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
                     ],
                     label='Asignar a grupo',
-                ).props('dense')
+                ).props('dense outlined').classes('w-64')
 
                 self.assign_button = ui.button(
                     'Asignar grupo',
-                    on_click=self.assign_group_to_selection
-                )
-        self.table.on('click', lambda e: logger.info("✅ Evento click detectado en tabla"))
+                    on_click=self.assign_group_to_selection,
+                    icon='check_circle'
+                ).props('color=positive outlined')
 
+                self.add_row_button = ui.button(
+                    'Agregar fila',
+                    on_click=self.add_new_row,
+                    icon='add'
+                ).props('color=primary outlined')
+
+                self.download_map_button = ui.button(
+                    'Descargar mapa de variables',
+                    on_click=self.download_variable_map,
+                    icon='download'
+                ).props('color=secondary outlined')
+
+        self.table.on('click', lambda e: logger.info("✅ Evento click detectado en tabla"))
 
             
 
@@ -1443,3 +1457,131 @@ class HTMLConverterUI:
             import traceback
             logger.error(f"❌ Error en handle_field_change({field_name}):\n" + traceback.format_exc())
             ui.notify(f"Error actualizando {label or field_name}: {ex}", type='negative')
+
+    def add_new_row(self):
+        """Agrega una nueva fila al inicio de la tabla, la muestra inmediatamente y la clasifica si aplica."""
+        try:
+            import pandas as pd
+
+            # Crear DataFrame vacío si no existe
+            if self.processed_data is None or self.processed_data.empty:
+                self.processed_data = pd.DataFrame(columns=[
+                    'id', 'register', 'name', 'description', 'read', 'write', 'sampling',
+                    'minvalue', 'maxvalue', 'unit', 'view', 'system_category'
+                ])
+
+            # Generar un nuevo ID único
+            existing_ids = self.processed_data['id'].astype(str).tolist()
+            next_id = max([int(x) for x in existing_ids if x.isdigit()] + [0]) + 1
+
+            # Crear nueva fila con valores por defecto
+            new_row = {
+                'id': next_id,
+                'register': 0,
+                'name': f'Nuevo Parámetro {next_id}',
+                'description': 'Descripción...',
+                'read': 0,
+                'write': 0,
+                'sampling': 0,
+                'minvalue': 0,
+                'maxvalue': 0,
+                'unit': '',
+                'view': 'basic',
+                'system_category': self.group_selector.value or 'DEFAULT',
+            }
+
+            # --- Insertar la fila al inicio del DataFrame principal ---
+            new_df = pd.DataFrame([new_row])
+            self.processed_data = pd.concat([new_df, self.processed_data], ignore_index=True)
+
+            # --- Insertar también en la tabla visual (al inicio) ---
+            current_rows = self.table.rows or []
+            updated_rows = [new_row] + current_rows
+            self.table.rows = updated_rows
+
+            # --- Mostrar la primera página para asegurar visibilidad inmediata ---
+            self.pagination_main['page'] = 1
+            self.table.update()
+
+            ui.notify(f"✅ Fila '{new_row['name']}' agregada en la parte superior.", color='positive', position='top')
+
+            # --- Si pertenece a un grupo válido, agregarla también a la tabla de grupos ---
+            valid_groups = [
+                'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT',
+                'STATUS', 'SYSTEM'
+            ]
+
+            if new_row['system_category'] in valid_groups:
+                if self.grouped_data is None or self.grouped_data.empty:
+                    self.grouped_data = new_df
+                else:
+                    all_cols = list(self.grouped_data.columns)
+                    new_df = new_df.reindex(columns=all_cols, fill_value=np.nan)
+                    self.grouped_data = pd.concat([new_df, self.grouped_data], ignore_index=True)
+
+                self.update_group_table()
+                ui.notify(f"🟩 Fila '{new_row['name']}' clasificada automáticamente en {new_row['system_category']}.", color='positive')
+            else:
+                ui.notify(f"ℹ️ Fila agregada sin grupo asignado (categoría: {new_row['system_category']}).", color='info')
+
+            # --- Refrescar tabla principal y de grupos ---
+            self.display_table()
+            self.update_group_table()
+
+        except Exception as ex:
+            import traceback
+            logger.error(f"❌ Error al agregar nueva fila:\n" + traceback.format_exc())
+            ui.notify(f"Error al agregar nueva fila: {ex}", type='negative')
+
+    def download_variable_map(self):
+        """Genera y descarga un Excel con el mapa de variables (solo columnas seleccionadas)."""
+        try:
+            import pandas as pd
+            from tempfile import NamedTemporaryFile
+            import os
+            import asyncio
+
+            # Determinar fuente de datos
+            df_source = None
+            if self.grouped_data is not None and not self.grouped_data.empty:
+                df_source = self.grouped_data
+            elif self.processed_data is not None and not self.processed_data.empty:
+                df_source = self.processed_data
+            else:
+                ui.notify("⚠️ No hay datos para generar el mapa de variables.", type='warning')
+                return
+
+            # Columnas que se exportarán
+            selected_cols = ["register", "name", "minvalue", "maxvalue", "unit", "read", "write"]
+
+            # Validar que las columnas existan
+            missing = [c for c in selected_cols if c not in df_source.columns]
+            if missing:
+                ui.notify(f"⚠️ Faltan columnas en los datos: {', '.join(missing)}", type='warning')
+                return
+
+            df_export = df_source[selected_cols].copy().replace({None: '', pd.NA: ''})
+
+            # Crear archivo temporal Excel
+            with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                with pd.ExcelWriter(tmp.name, engine="openpyxl") as writer:
+                    df_export.to_excel(writer, sheet_name="Mapa de Variables", index=False)
+                tmp.flush()
+                file_path = tmp.name
+
+            ui.download(file_path, filename="mapa_de_variables.xlsx")
+            ui.notify("📗 Descarga iniciada: mapa_de_variables.xlsx", type='info')
+
+            # Limpieza del archivo temporal
+            async def cleanup_file(path):
+                await asyncio.sleep(60)
+                if os.path.exists(path):
+                    os.remove(path)
+
+            ui.timer(1.0, lambda: asyncio.create_task(cleanup_file(file_path)), once=True)
+
+        except Exception as ex:
+            import traceback
+            logger.error(f"❌ Error al generar mapa de variables:\n{traceback.format_exc()}")
+            ui.notify(f"Error al generar mapa de variables: {ex}", type='negative')
