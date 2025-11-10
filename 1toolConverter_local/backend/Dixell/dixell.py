@@ -6,6 +6,7 @@ from openpyxl import Workbook
 import logging
 import re
 import numpy as np
+
 # ====================================================
 # Configuración de logging
 # ====================================================
@@ -42,7 +43,7 @@ ENCABEZADOS_EQUIVALENTES = {
 # ====================================================
 # Mapeo de columnas (equivalentes)
 # ====================================================
-COLUMNAS_VALIDAS = {
+COLUMNAS_VALIDAS1 = {
     "Name": ["Name", "NAME", "Nombre", "name"],
     "Unit": ["Unit", "UNIT", "unit", "unidades"],
     "Read Register": ["Read Register", "Reading Registers", "Read Addr", "Reg Read", "Reading Registers N"],
@@ -50,7 +51,6 @@ COLUMNAS_VALIDAS = {
     "Write Register": ["Write Register", "Writing Registers", "Write Addr", "Reg Write", "d Writing Registers"],
     "Num. Elements Write": ["Num. Elements Write", "Num.Elements Write", "Num. of Elements to Write", "Number of Write Elements"],
     "Gain": ["Gain", "Factor", "G"],
-    "Dec": ["Dec", "Decimals", "Resolution"],
     "Offset": ["Offset", "Offs", "Displacement"],
     "Byte ORDER": ["Byte ORDER", "Byte Order", "ByteOrder"],
     "Format": ["Format", "Formato", "Data Type"],
@@ -58,29 +58,36 @@ COLUMNAS_VALIDAS = {
     "Register": ["Register", "Reg", "Dir"],
     "Value": ["Value", "Valor", "Default Value", "Initial Value"],
     "Modbus Command": ["Modbus Command", "Command", "CMD"],
+}
+
+COLUMNAS_VALIDAS2 = {
+    "Dec": ["Dec", "Decimals", "Resolution"],
     "DEC": ["DEC", "DECIMAL"] ,
     "REGISTER[hex]": ["REGISTER[hex]", "HEX"],
-    "VAN NAME": ["VAR NAME", "VAR"],
+    "VAR NAME": ["VAR NAME", "VAR"],
     "DESCRIPTION": ["DESCRIPTION", "description"],
     "GROUP": ["GROUP", "group"],
     "LENGHT": ["LENGHT", "lenght"],
     "TYPE": ["TYPE", "type"]
 }
 
-COLUMN_MAPPING = {
+COLUMN_MAPPING1 = {
     "Name": "name",
-    "VAR NAME": "name",
-    "DESCRIPTION": "description",
-    "GROUP": "category",
     "Unit": "unit",
     "Read Register": "register",
     "Write Register": "register",
-    "DEC": "register",
     "Register": "register",
     "Offset": "offset",
     "Format": "length",
-    "LENGHT": "lenght",
     "Value": "value",
+}
+
+COLUMN_MAPPING2 = {
+    "VAR NAME": "name",
+    "DESCRIPTION": "description",
+    "GROUP": "category",
+    "Dec": "register",
+    "LENGHT": "lenght",
     "TYPE": "value"
 }
 
@@ -126,7 +133,6 @@ def eliminar_filas_vacias_completas(df):
     return df.dropna(how="all")
 
 def deduplicar_columnas(cols):
-    """Evita columnas duplicadas en pandas >=2.1"""
     vistos = {}
     nuevas = []
     for c in cols:
@@ -139,7 +145,6 @@ def deduplicar_columnas(cols):
     return nuevas
 
 def hex_to_dec(val):
-    """Convierte un valor hexadecimal (string) a decimal. Devuelve el mismo valor si no es hex válido."""
     if pd.isna(val):
         return ""
     val = str(val).strip().replace(" ", "")
@@ -152,14 +157,12 @@ def hex_to_dec(val):
             return val
     except Exception:
         return val
-    
+
 def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Normaliza los nombres de categorías específicas (insensible a mayúsculas)."""
     if 'system_category' in df.columns:
         df = df.copy()
         df['system_category'] = df['system_category'].astype(str).str.strip().str.lower()
 
-        # Mapeo normal
         mapping = {
             'set point': 'SET_POINT',
             'analog input': 'ANALOG_INPUT',
@@ -176,7 +179,6 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
         df['system_category'] = df['system_category'].replace(mapping)
         df['system_category'] = df['system_category'].str.upper()
 
-        # Filtrar categorías vacías o nulas
         df = df[~df['system_category'].isin(['NONE', '', 'NAN', None])].copy()
 
         if "system_category" in df.columns:
@@ -191,12 +193,9 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[mask_di, 'system_category'] = 'DIGITAL_INPUT'
         logger.info(f"{mask_di.sum()} filas marcadas como DIGITAL_INPUT")
 
-
     return df
 
-
 def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
-    """Asigna permisos de lectura/escritura en función del tipo de dato y categoría."""
     if 'read' not in df.columns:
         df['read'] = 0
     if 'write' not in df.columns:
@@ -206,7 +205,6 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
     only_read = pd.Series(False, index=df.index)
     rw = pd.Series(False, index=df.index)
 
-    # Mapeo por "R / W"
     if 'R / W' in df.columns:
         access = df['R / W'].astype(str).str.upper().str.strip()
 
@@ -220,7 +218,6 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
 
         df.drop(columns=['R / W'], inplace=True, errors='ignore')
 
-    # Ajustes por tipo de sistema
     if 'system_category' in df.columns:
         system_type = df['system_category'].astype(str).str.upper().str.strip()
 
@@ -341,10 +338,8 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
                 for i, tabla in enumerate(tablas, start=1):
                     df = pd.DataFrame(tabla)
                     encabezado = ", ".join([str(x).strip() for x in tabla[0] if x]) if len(tabla) > 0 else ""
-
                     encabezado_principal = None
 
-                    # --- Buscar coincidencia exacta (sensible a mayúsculas/minúsculas) ---
                     for clave, alias_list in ENCABEZADOS_EQUIVALENTES.items():
                         if any(alias.strip() == encabezado.strip() for alias in alias_list):
                             encabezado_principal = clave
@@ -358,7 +353,6 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
                             ignore_index=True
                         )
                     else:
-                        # --- Si no coincide con ningún encabezado, asignar a la última hoja válida o SinClasificar ---
                         if ultima_hoja_valida:
                             hojas[ultima_hoja_valida] = pd.concat(
                                 [hojas[ultima_hoja_valida], df],
@@ -371,8 +365,7 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
                                 ignore_index=True
                             )
 
-
-    # --- Limpiar, eliminar primeras filas y guardar ---
+    # --- Limpiar y guardar ---
     with pd.ExcelWriter(salida_excel, engine='openpyxl') as escritor:
         hojas_limpiadas = {}
 
@@ -380,20 +373,50 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
             df_limpio = limpiar_dataframe(df)
             df_limpio = eliminar_filas_vacias_completas(df_limpio)
 
-            if len(df_limpio) > 3:
-                df_limpio = df_limpio.iloc[3:].reset_index(drop=True)
+            # --- Buscar fila que coincida con columnas válidas ---
+            fila_encabezado_idx = None
+            for i, fila in df_limpio.iterrows():
+                fila_str = [str(x).strip().lower() for x in fila]
+                if any(
+                    any(f in [a.lower() for a in alias_list] for alias_list in COLUMNAS_VALIDAS1.values())
+                    or any(f in [a.lower() for a in alias_list] for alias_list in COLUMNAS_VALIDAS2.values())
+                    for f in fila_str
+                ):
+                    fila_encabezado_idx = i
+                    break
+
+           # --- Si se encontró encabezado, eliminar filas anteriores ---
+            if fila_encabezado_idx is not None:
+                df_limpio = df_limpio.iloc[fila_encabezado_idx:].reset_index(drop=True)
+
+                # --- Detectar si la primera fila es 'meta' (HEX, DEC, etc.) y eliminarla ---
+                if not df_limpio.empty:
+                    primera_fila = [str(x).strip().lower() for x in df_limpio.iloc[0].tolist()]
+                    palabras_meta = {"hex", "dec", "decimal", "direccion", "dir", ""}
+                    total = len([x for x in primera_fila if x != ""])
+                    coincidencias = sum(1 for x in primera_fila if x in palabras_meta)
+
+                    logger.info(f"[DEBUG] Primera fila después del corte en hoja '{nombre}': {primera_fila}")
+                    logger.info(f"[DEBUG] Coincidencias meta={coincidencias}, total_no_vacios={total}")
+
+                    # Si más del 50% de las celdas son meta o vacías → eliminar esa fila
+                    if total == 0 or coincidencias >= total * 0.2:
+                        logger.info(f"Eliminando fila 'meta' en hoja '{nombre}' (parece ser encabezado falso tipo HEX)")
+                        df_limpio = df_limpio.iloc[1:].reset_index(drop=True)
+
+            else:
+                logger.warning(f"No se encontró fila de encabezado válida en hoja '{nombre}'")
+
+                
 
             if not df_limpio.empty:
-                encabezado_detectado = ", ".join(
-                    [str(x) for x in df_limpio.iloc[0].tolist() if pd.notna(x)]
-                )
+                encabezado_detectado = ", ".join([str(x) for x in df_limpio.iloc[0].tolist() if pd.notna(x)])
             else:
                 encabezado_detectado = "Sin encabezado (hoja vacía)"
 
-            logger.info(f"Encabezado detectado en hoja '{nombre}' (tras eliminar 3 filas): {encabezado_detectado}")
+            logger.info(f"Encabezado detectado en hoja '{nombre}': {encabezado_detectado}")
 
             hojas_limpiadas[nombre] = df_limpio
-            # --- Limpiar nombre de hoja ---
             nombre_hoja = re.sub(r'[:\\/*?\[\]/]', '_', nombre)[:31]
             df_limpio.to_excel(escritor, sheet_name=nombre_hoja, index=False, header=False)
 
@@ -405,96 +428,131 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
                 df_copy.columns = df_copy.iloc[0]
                 df_copy = df_copy[1:].reset_index(drop=True)
 
-                # 🔹 Normalizar nombres de columnas
+                # Mostrar columnas detectadas
+                logger.info(f"Columnas detectadas: {list(df_copy.columns)}")
+                logger.info(f"Primera fila (posible encabezado): {list(df_copy.iloc[0])}")
+                for alias_list in COLUMNAS_VALIDAS1.values():
+                    logger.info(f"Lista de alias: {list(alias_list)}")
+
+                # Determinar qué mapping usar
+                matches1 = sum(
+                    any(str(col).strip().lower() == a.lower() for a in alias_list)
+                    for col in df_copy.columns
+                    for alias_list in COLUMNAS_VALIDAS1.values()
+                )
+                logger.info(f"Coincidencias con COLUMNAS_VALIDAS1: {matches1}")
+
+                matches2 = sum(
+                    any(str(col).strip().lower() == a.lower() for a in alias_list)
+                    for col in df_copy.columns
+                    for alias_list in COLUMNAS_VALIDAS2.values()
+                )
+                logger.info(f"Coincidencias con COLUMNAS_VALIDAS2: {matches2}")
+
+                if matches1 >= matches2:
+                    COLUMNAS_VALIDAS_USAR = COLUMNAS_VALIDAS1
+                    COLUMN_MAPPING_USAR = COLUMN_MAPPING1
+                else:
+                    COLUMNAS_VALIDAS_USAR = COLUMNAS_VALIDAS2
+                    COLUMN_MAPPING_USAR = COLUMN_MAPPING2
+
+                logger.info("\n==== df_final - Se usara el ====")
+                logger.info(COLUMN_MAPPING_USAR)
+                logger.info("\n==== df_final - Se usara con las ====")
+                logger.info(COLUMNAS_VALIDAS_USAR)
+
+                # 🔹 Normalizar columnas
                 columnas_nuevas = []
                 for col in df_copy.columns:
                     col_limpio = str(col).strip()
                     encontrado = False
-                    for canonico, alias_list in COLUMNAS_VALIDAS.items():
+                    for canonico, alias_list in COLUMNAS_VALIDAS_USAR.items():
                         if col_limpio.lower() in [a.lower() for a in alias_list]:
                             columnas_nuevas.append(canonico)
                             encontrado = True
                             break
                     if not encontrado:
-                        columnas_nuevas.append(col_limpio)  # deja igual si no hay equivalencia
-                # --- LOG: columnas detectadas antes del mapeo
-                logger.info(f"Columnas detectadas antes del mapeo: {list(df_copy.columns)}")
-                logger.info(f"Columnas tras aplicar equivalencias: {columnas_nuevas}")
+                        columnas_nuevas.append(col_limpio)
                 df_copy.columns = columnas_nuevas
-
 
                 # 🔹 Eliminar encabezados duplicados
                 df_copy.columns = deduplicar_columnas(df_copy.columns)
 
-               # 🔹 Obtener lista de nombres válidos
-                columnas_finales = list(COLUMNAS_VALIDAS.keys())
-
                 # 🔹 Asegurar todas las columnas válidas
-                for col in columnas_finales:
+                for col in COLUMNAS_VALIDAS_USAR.keys():
                     if col not in df_copy.columns:
                         df_copy[col] = ""
 
                 # 🔹 Reordenar columnas
-                df_copy = df_copy[columnas_finales]
+                df_copy = df_copy[list(COLUMNAS_VALIDAS_USAR.keys())]
                 df_copy.insert(0, "system_category", nombre)
                 todas.append(df_copy)
 
         if todas:
             df_final = pd.concat(todas, ignore_index=True)
+            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info(df_final.head(10))
 
-            # ✅ Combinar "Read Register" y "Write Register" correctamente
+            # 🔹 Combinar "Read Register" y "Write Register" correctamente
             read_vals = df_final["Read Register"] if "Read Register" in df_final.columns else pd.Series([""] * len(df_final))
             write_vals = df_final["Write Register"] if "Write Register" in df_final.columns else pd.Series([""] * len(df_final))
             reg_vals = df_final["Register"] if "Register" in df_final.columns else pd.Series([""] * len(df_final))
-
+            dec_vals = df_final["Dec"] if "Dec" in df_final.columns else pd.Series([""]* len(df_final))
+            
             df_final["register"] = read_vals.fillna("").astype(str)
             df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), write_vals)
             df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), reg_vals)
+            df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), dec_vals)
+
+            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info(df_final.head(10))
 
             # Copiar las demás columnas según el mapeo
-            for col_origen, col_destino in COLUMN_MAPPING.items():
+            for col_origen, col_destino in COLUMN_MAPPING_USAR.items():
                 if col_destino != "register" and col_origen in df_final.columns:
                     df_final[col_destino] = df_final[col_origen]
 
-            # Añadir columnas faltantes del modelo final
+            # Añadir columnas faltantes
             for col in LIBRARY_COLUMNS:
                 if col not in df_final.columns:
                     df_final[col] = DEFAULT_VALUES.get(col, "")
+            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info(df_final.head(10))
 
             # 🔹 Eliminar filas sin 'register' ni 'name'
             df_final = df_final[
                 ~((df_final["register"].fillna("").astype(str).str.strip() == "") &
                   (df_final["name"].fillna("").astype(str).str.strip() == ""))
             ].reset_index(drop=True)
+            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info(df_final.head(10))
 
-            # 🔹 Convertir columnas 'register' y 'value' a decimal
+            # 🔹 Convertir 'register' y 'value' a decimal
             if "register" in df_final.columns:
                 df_final["register"] = df_final["register"].apply(hex_to_dec).astype(str)
 
             if "value" in df_final.columns:
-                # Convertir hexadecimales a decimal
                 df_final["value"] = df_final["value"].apply(hex_to_dec).astype(str)
-
-                # Reemplazar valores no numéricos o con símbolos especiales por 0
                 df_final["value"] = df_final["value"].apply(
                     lambda x: x if re.fullmatch(r"^-?\d+(\.\d+)?$", x.strip()) else "0"
                 )
 
-
-            # Procesar columnas específicas
+            # Procesar reglas
             df_final = _process_specific_columns(df_final)
             df_final = _process_access_permissions(df_final)
             df_final = _apply_sampling_rules(df_final)
             df_final = _apply_view_rules(df_final)
             df_final = _determine_data_length(df_final)
             df_final = _apply_unit_rules(df_final)
+            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info(df_final.head(10))
 
-            # Reordenar según el modelo
             df_final = df_final[LIBRARY_COLUMNS]
+            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info(df_final.head(10))
 
-            # 🔹 Eliminar filas sin 'register' (vacías o NaN)
+            # 🔹 Limpiar filas vacías y categorías no deseadas
             df_final = df_final[df_final["register"].fillna("").astype(str).str.strip() != ""]
-            # 🔹 Eliminar filas cuyo system_category sea 'CLOCK' (insensible a mayúsculas)
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("CLOCK", na=False)]
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("SERIAL_OUTPUT", na=False)]
 
@@ -507,7 +565,6 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
     for linea in descripcion:
         print(linea)
     print(f"\n✅ Análisis completado. Se eliminaron las primeras 3 filas, se limpiaron filas vacías y se convirtieron valores a decimal correctamente.\n")
-
 
 # ====================================================
 # Ejecución

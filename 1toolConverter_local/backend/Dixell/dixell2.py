@@ -538,7 +538,7 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
             logger.info(df_final.head(10))
 
             # 🔹 Eliminar filas sin 'register' (vacías o NaN)
-            #df_final = df_final[df_final["register"].fillna("").astype(str).str.strip() != ""]
+            df_final = df_final[df_final["register"].fillna("").astype(str).str.strip() != ""]
             
             # 🔹 Eliminar filas cuyo system_category sea 'CLOCK' (insensible a mayúsculas)
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("CLOCK", na=False)]
