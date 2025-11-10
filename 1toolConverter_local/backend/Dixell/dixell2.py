@@ -60,7 +60,7 @@ COLUMNAS_VALIDAS = {
     "Modbus Command": ["Modbus Command", "Command", "CMD"],
     "DEC": ["DEC", "DECIMAL"] ,
     "REGISTER[hex]": ["REGISTER[hex]", "HEX"],
-    "VAN NAME": ["VAR NAME", "VAR"],
+    "VAR NAME": ["VAR NAME", "VAR"],
     "DESCRIPTION": ["DESCRIPTION", "description"],
     "GROUP": ["GROUP", "group"],
     "LENGHT": ["LENGHT", "lenght"],
@@ -75,7 +75,7 @@ COLUMN_MAPPING = {
     "Unit": "unit",
     "Read Register": "register",
     "Write Register": "register",
-    "DEC": "register",
+    "Dec": "register",
     "Register": "register",
     "Offset": "offset",
     "Format": "length",
@@ -381,7 +381,7 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
             df_limpio = eliminar_filas_vacias_completas(df_limpio)
 
             if len(df_limpio) > 3:
-                df_limpio = df_limpio.iloc[3:].reset_index(drop=True)
+                df_limpio = df_limpio.iloc[6:].reset_index(drop=True)
 
             if not df_limpio.empty:
                 encabezado_detectado = ", ".join(
@@ -418,88 +418,135 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
                     if not encontrado:
                         columnas_nuevas.append(col_limpio)  # deja igual si no hay equivalencia
                 # --- LOG: columnas detectadas antes del mapeo
+                                
                 logger.info(f"Columnas detectadas antes del mapeo: {list(df_copy.columns)}")
                 logger.info(f"Columnas tras aplicar equivalencias: {columnas_nuevas}")
-                df_copy.columns = columnas_nuevas
 
+                logger.info(f"\n==== HOJA: {nombre} - Antes de mapear columnas 1====")
+                logger.info(df_copy.head(10))  # correcto: usar df_copy
+
+                # Aplicar equivalencias
+                df_copy.columns = columnas_nuevas
 
                 # 🔹 Eliminar encabezados duplicados
                 df_copy.columns = deduplicar_columnas(df_copy.columns)
+                logger.info(f"\n==== HOJA: {nombre} - Después de eliminar duplicados 2 ====")
+                logger.info(df_copy.head(10))
 
-               # 🔹 Obtener lista de nombres válidos
+                # 🔹 Filtrar solo columnas válidas presentes
                 columnas_finales = list(COLUMNAS_VALIDAS.keys())
+                logger.info(f"Columnas finales posibles: {columnas_finales}")
 
-                # 🔹 Asegurar todas las columnas válidas
-                for col in columnas_finales:
-                    if col not in df_copy.columns:
-                        df_copy[col] = ""
+                df_copy = df_copy[[col for col in df_copy.columns if col in columnas_finales]]
+                logger.info(f"\n==== HOJA: {nombre} - Después de filtrar solo columnas válidas presentes 3====")
+                logger.info(df_copy.head(10))
 
-                # 🔹 Reordenar columnas
-                df_copy = df_copy[columnas_finales]
+                # 🔹 Reordenar columnas según el orden de columnas_finales, conservando solo las presentes
+                columnas_reordenadas = [col for col in columnas_finales if col in df_copy.columns]
+                df_copy = df_copy[columnas_reordenadas]
                 df_copy.insert(0, "system_category", nombre)
+                logger.info(f"\n==== HOJA: {nombre} - Después de reordenar columnas 4====")
+                logger.info(df_copy.head(10))
                 todas.append(df_copy)
+
 
         if todas:
             df_final = pd.concat(todas, ignore_index=True)
-
+            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info(df_final.head(10))
+            
             # ✅ Combinar "Read Register" y "Write Register" correctamente
             read_vals = df_final["Read Register"] if "Read Register" in df_final.columns else pd.Series([""] * len(df_final))
             write_vals = df_final["Write Register"] if "Write Register" in df_final.columns else pd.Series([""] * len(df_final))
             reg_vals = df_final["Register"] if "Register" in df_final.columns else pd.Series([""] * len(df_final))
+            dec_vals = df_final["Dec"] if "Dec" in df_final.columns else pd.Series([""]* len(df_final))
+            
 
             df_final["register"] = read_vals.fillna("").astype(str)
             df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), write_vals)
             df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), reg_vals)
+            df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), dec_vals)
+
+            logger.info("\n==== df_final - Después de combinar registers 6====")
+            logger.info(df_final.head(10))
 
             # Copiar las demás columnas según el mapeo
             for col_origen, col_destino in COLUMN_MAPPING.items():
                 if col_destino != "register" and col_origen in df_final.columns:
                     df_final[col_destino] = df_final[col_origen]
+            logger.info("\n==== df_final - Después de aplicar COLUMN_MAPPING 7====")
+            logger.info(df_final.head(10))
 
             # Añadir columnas faltantes del modelo final
             for col in LIBRARY_COLUMNS:
                 if col not in df_final.columns:
                     df_final[col] = DEFAULT_VALUES.get(col, "")
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 8====")
+            logger.info(df_final.head(10))
 
             # 🔹 Eliminar filas sin 'register' ni 'name'
             df_final = df_final[
                 ~((df_final["register"].fillna("").astype(str).str.strip() == "") &
                   (df_final["name"].fillna("").astype(str).str.strip() == ""))
             ].reset_index(drop=True)
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 9====")
+            logger.info(df_final.head(10))
 
             # 🔹 Convertir columnas 'register' y 'value' a decimal
             if "register" in df_final.columns:
                 df_final["register"] = df_final["register"].apply(hex_to_dec).astype(str)
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 10====")
+            logger.info(df_final.head(10))
 
             if "value" in df_final.columns:
-                # Convertir hexadecimales a decimal
+            #    # Convertir hexadecimales a decimal
                 df_final["value"] = df_final["value"].apply(hex_to_dec).astype(str)
+                logger.info("\n==== df_final - Después de añadir columnas faltantes 11====")
+                logger.info(df_final.head(10))
 
                 # Reemplazar valores no numéricos o con símbolos especiales por 0
                 df_final["value"] = df_final["value"].apply(
                     lambda x: x if re.fullmatch(r"^-?\d+(\.\d+)?$", x.strip()) else "0"
                 )
+                logger.info("\n==== df_final - Después de añadir columnas faltantes 12====")
+                logger.info(df_final.head(10))
 
 
             # Procesar columnas específicas
             df_final = _process_specific_columns(df_final)
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 12.1====")
+            logger.info(df_final.head(10))
             df_final = _process_access_permissions(df_final)
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 12.2====")
+            logger.info(df_final.head(10))
             df_final = _apply_sampling_rules(df_final)
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 12.3====")
+            logger.info(df_final.head(10))
             df_final = _apply_view_rules(df_final)
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 12.4====")
+            logger.info(df_final.head(10))
             df_final = _determine_data_length(df_final)
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 12.5====")
+            logger.info(df_final.head(10))
             df_final = _apply_unit_rules(df_final)
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 12.6====")
+            logger.info(df_final.head(10))
 
             # Reordenar según el modelo
             df_final = df_final[LIBRARY_COLUMNS]
+            logger.info("\n==== df_final - Reordenar segun el modelo 13====")
+            logger.info(df_final.head(10))
 
             # 🔹 Eliminar filas sin 'register' (vacías o NaN)
-            df_final = df_final[df_final["register"].fillna("").astype(str).str.strip() != ""]
+            #df_final = df_final[df_final["register"].fillna("").astype(str).str.strip() != ""]
+            
             # 🔹 Eliminar filas cuyo system_category sea 'CLOCK' (insensible a mayúsculas)
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("CLOCK", na=False)]
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("SERIAL_OUTPUT", na=False)]
 
             df_final.to_excel(escritor, sheet_name="Todas las Tablas", index=False)
-
+            logger.info("\n==== df_final - Después de añadir columnas faltantes 14====")
+            logger.info(df_final.head(10))
     descripcion.append(f"🔹 Total de tablas detectadas: {tablas_detectadas}")
     descripcion.append(f"🔹 Total de zonas coloreadas: {len(zonas_colores)}")
 

@@ -326,7 +326,19 @@ def finalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
-    mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 0, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0, "CONFIG_PARAMETER":0}
+    mapping = {
+        "ALARM": 30, 
+        "SET_POINT": 300, 
+        "DEFAULT": 0, 
+        "COMMAND": 0, 
+        "STATUS": 60, 
+        "SYSTEM": 0, 
+        "CONFIG_PARAMETER": 0, 
+        "ANALOG_INPUT": 60, 
+        "ANALOG_OUTPUT":60,
+        "DIGITAL_INPUT": 60, 
+        "DIGITAL_OUTPUT":60,
+        }
     df["sampling"] = df["system_category"].map(mapping).fillna(0)
     return df
 
