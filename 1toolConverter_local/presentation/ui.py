@@ -49,16 +49,28 @@ class HTMLConverterUI:
 
 
     async def handle_upload(self, e):
+        """
+        Maneja la carga de archivos.
+        - Para backends no-Dixell: reemplaza el archivo actual (solo 1).
+        - Para Dixell: permite múltiples archivos (append).
+        """
         try:
             logger.info(f"Iniciando carga de archivo: {e.file.name}")
-
-            # Leer archivo y agregarlo a la lista
             file_bytes = await e.file.read()
-            self.uploaded_file_contents.append(file_bytes)
-            self.uploaded_file_names.append(e.file.name)
+            filename = e.file.name
+
+            # Si el backend es Dixell (multiples PDFs) permitimos append.
+            if self.backend_selected == "Dixell":
+                self.uploaded_file_contents.append(file_bytes)
+                self.uploaded_file_names.append(filename)
+            else:
+                # Para otros backends, sobrescribimos el archivo (comportamiento 'single file')
+                self.uploaded_file_contents = [file_bytes]
+                self.uploaded_file_names = [filename]
 
             logger.info(f"Archivo leído correctamente: {len(file_bytes)} bytes")
 
+            # UI state
             if self.process_button:
                 self.process_button.enable()
             if self.download_button:
@@ -68,13 +80,14 @@ class HTMLConverterUI:
             if self.group_table_card:
                 self.group_table_card.visible = False
 
-            ui.notify(f"Archivo '{e.file.name}' cargado correctamente.", type='positive')
+            ui.notify(f"Archivo '{filename}' cargado correctamente.", type='positive')
 
         except Exception as ex:
             logger.error(f"Error al cargar archivo: {ex}", exc_info=True)
             ui.notify(f"Error al cargar archivo: {ex}", type='negative')
 
     def process_file(self, e):
+        """Procesa el archivo cargado con el backend seleccionado."""
         if not self.uploaded_file_contents:
             ui.notify("No hay archivo para procesar.", type='negative')
             return
@@ -104,11 +117,10 @@ class HTMLConverterUI:
         if self.backend_selected == "Dixell":
             df = self.process_html_callback(self.uploaded_file_contents)
         else:
-            df = self.process_html_callback(self.uploaded_file_contents[0])
+            df = self.process_html_callback(self.uploaded_file_contents[-1])
 
         if df is not None and not df.empty:
             self.processed_data = df
-            # Aquí irían tus funciones para mostrar la tabla
             self.display_table()
             self.update_group_table()
             if self.download_button:
@@ -121,14 +133,10 @@ class HTMLConverterUI:
                 'SYSTEM'
             ]
 
-            valid_groups2 = [
-                'basic', 'primary'
-            ]
+            valid_groups2 = ['basic', 'primary']
 
             auto_grouped1 = df[df['system_category'].isin(valid_groups1)]
             auto_grouped2 = df[df['view'].isin(valid_groups2)]
-
-            # Combinar ambos sin duplicados
             combined_grouped = pd.concat([auto_grouped1, auto_grouped2]).drop_duplicates()
 
             if not combined_grouped.empty:
@@ -138,20 +146,39 @@ class HTMLConverterUI:
                     type='positive',
                     timeout=2.5
                 )
-                
-            if self.download_button:
-                self.download_button.enable()
 
             ui.notify(f"{len(df)} parámetros procesados.", type='positive')
-            self.display_table()  
-            self.update_group_table()  
-
+            self.display_table()
+            self.update_group_table()
         else:
             self.processed_data = None
             ui.notify("No se obtuvieron datos del procesamiento.", type='warning')
-
             if self.download_button:
                 self.download_button.disable()
+    
+    def remove_uploaded_files(self):
+        """Elimina todos los archivos subidos y resetea el estado."""
+        self.uploaded_file_contents = []
+        self.uploaded_file_names = []
+        self.processed_data = None
+        self.grouped_data = pd.DataFrame()
+        self.selected_rows = []
+        self.selected_group_rows = []
+        if self.table:
+            self.table.rows = []
+            self.table.update()
+        if self.group_table:
+            self.group_table.rows = []
+            self.group_table.update()
+        if self.table_card:
+            self.table_card.visible = False
+        if self.group_table_card:
+            self.group_table_card.visible = False
+        if self.download_button:
+            self.download_button.disable()
+        if self.process_button:
+            self.process_button.disable()
+        ui.notify("Archivos eliminados.", type='info')
 
 
     def display_table(self):
@@ -213,8 +240,8 @@ class HTMLConverterUI:
                 df_to_export = self.processed_data
                 file_name = 'parametros_convertidos.xlsx'
 
-            #if 'category' in df_to_export.columns:
-            #   df_to_export['category'] = np.nan
+            if 'category' in df_to_export.columns:
+               df_to_export['category'] = np.nan
             
             if 'id' in df_to_export.columns:
                 df_to_export['id']=np.nan
@@ -407,6 +434,7 @@ class HTMLConverterUI:
 
             # Asociar el manejador de subida
             self.upload_component.on_upload(self.handle_upload)
+            self.upload_component.on('removed', lambda e: self.remove_uploaded_files())
 
             # 🔹 Deshabilitar si el backend no tiene formatos válidos
             if not accept_types:

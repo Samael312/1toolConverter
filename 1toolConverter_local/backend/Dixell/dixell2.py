@@ -177,6 +177,79 @@ def _ensure_columns(df: pd.DataFrame, cols: list, default_vals: dict = None) -> 
                 df[col] = ""
     return df
 
+def normalize_unit(unit: str) -> str:
+    """Normaliza unidades conocidas a un formato estándar"""
+    unit = str(unit).strip().lower()
+    if unit in ["º", "°"]:
+        return "°C"
+    if unit == "m":
+        return "min"
+    if unit in ["sec", "s", "seg"]:
+        return "s"
+    if unit == "%":
+        return "%"
+    if unit in ["h"]:
+        return "h"
+    if unit in ["°c", "c"]:
+        return "°C"
+    return unit
+
+def extract_min_max_from_type_safe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Extrae minvalue, maxvalue y unidad de la columna 'Type' de manera tolerante.
+    No elimina filas aunque no tengan rango.
+    """
+    # Regex más flexible para rango
+    rango_regex = re.compile(
+        r"([-+]?\d+(?:[\.,]\d+)?)\s*([°ºCF%rpmsechmsVАОΩohmbarkPa]*)\s*(?:to|-)\s*([-+]?\d+(?:[\.,]\d+)?)\s*([°ºCF%rpmsechmsVАОΩohmbarkPa]*)",
+        re.IGNORECASE
+    )
+
+    min_vals, max_vals, units = [], [], []
+
+    for val in df["type"].astype(str):
+        val = val.strip()
+        if not val:
+            min_vals.append("")
+            max_vals.append("")
+            units.append("")
+            continue
+
+        match = rango_regex.search(val)
+        if match:
+            min_num, min_unit, max_num, max_unit = match.groups()
+            min_vals.append(min_num.replace(",", "."))
+            max_vals.append(max_num.replace(",", "."))
+            unit_final = normalize_unit(max_unit) or normalize_unit(min_unit)
+            units.append(unit_final)
+        else:
+            min_vals.append("")
+            max_vals.append("")
+            units.append("")
+
+    df["minvalue"] = min_vals
+    df["maxvalue"] = max_vals
+    df["unit"] = units
+
+    # Limpiar la columna Type
+    df["type"] = ""
+
+    return df
+
+def map_data_type(df, col="length"):
+    mapping = {
+        "1bit": "1bit",
+        "2bit": "2bit",
+        "4bit": "4bit",
+        "byte": "u8",
+        "word": "s16",
+        "16 bit Signed": "s16",
+        "16 bit Unsigned": "16bit",
+        "lock": "1bit"  
+    }
+    df[col] = df[col].astype(str).str.lower().map(mapping).fillna("16bit")
+    return df
+
 def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     # defensiva: si no existe 'name' o 'system_category', crearlas
     df = df.copy()
@@ -629,6 +702,10 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             df_final = _apply_view_rules(df_final)
             df_final = _determine_data_length(df_final)
             df_final = _apply_unit_rules(df_final)
+            df_final = extract_min_max_from_type_safe(df_final)
+            df_final = map_data_type(df_final)
+  
+
             logger.info("\n==== df_final - 4====")
             logger.info(f"Columnas detectadas: {list(df_final.columns)}")
             logger.info(df_final.head(10).to_string())
@@ -642,6 +719,33 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             df_final = df_final[df_final["register"].fillna("").astype(str).str.strip() != ""]
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("CLOCK", na=False)]
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("SERIAL_OUTPUT", na=False)]
+
+            # Asignar 'id' como número de fila empezando desde 1
+            df_final['id'] = range(1, len(df_final) + 1)
+            # Rellenar description vacía con 'Add'
+            df_final['description'] = df_final['description'].fillna("").astype(str)
+            df_final['description'] = df_final['description'].apply(lambda x: "Add" if x.strip() == "" else x[:60])
+            # Rellenar toda la columna 'type' con "modbus"
+            df_final['type'] = "modbus"
+            
+            # Convertir 'offset' a float y rellenar vacíos con 0
+            df_final['offset'] = pd.to_numeric(df_final['offset'], errors='coerce').fillna(0.0)
+
+            # Hacer 'name' única agregando sufijo _# en caso de repetidos (sin diferenciar mayúsculas/minúsculas)
+            name_counts = {}
+            new_names = []
+
+            for n in df_final['name']:
+                n_str = str(n).strip()
+                n_lower = n_str.lower()
+                if n_lower in name_counts:
+                    name_counts[n_lower] += 1
+                    new_names.append(f"{n_str}_{name_counts[n_lower]}")
+                else:
+                    name_counts[n_lower] = 0
+                    new_names.append(n_str)
+
+            df_final['name'] = new_names
 
             logger.info("\n==== df_final - 6====")
             logger.info(f"Columnas detectadas: {list(df_final.columns)}")
@@ -676,15 +780,15 @@ def process_multiple_pdfs(pdf_contents: list, salida_excel: str = "tablas_extrai
         if df_temp is None:
             logger.warning(f"❌ process_dixell devolvió None para el elemento {i}")
             continue
-        df_temp["source_file"] = f"pdf_{i}"
         resultados.append(df_temp)
 
     if resultados:
         df_concat = pd.concat(resultados, ignore_index=True)
-        # Asegurar columnas finales
-        for col in LIBRARY_COLUMNS + ["source_file"]:
-            if col not in df_concat.columns:
-                df_concat[col] = DEFAULT_VALUES.get(col, "")
+
+        # 🔹 Recalcular 'id' único para todo el conjunto
+        if not df_concat.empty:
+            df_concat['id'] = range(1, len(df_concat) + 1)
+
         try:
             df_concat.to_excel(salida_excel, index=False)
             logger.info(f"✅ Archivos concatenados guardados en {salida_excel}")

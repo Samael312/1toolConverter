@@ -81,7 +81,7 @@ def main():
 
         # Para backends que usan un solo archivo (Keyter, iPro, Cefa)
         if backend in ["Keyter", "iPro", "Cefa"]:
-            filename = ui_controller.uploaded_file_names[0] if ui_controller.uploaded_file_names else "desconocido"
+            filename = ui_controller.uploaded_file_names[-1] if ui_controller.uploaded_file_names else "desconocido"
             return unified_process_file(backend, filename, file_bytes)
 
         # Para Dixell que usa múltiples archivos
