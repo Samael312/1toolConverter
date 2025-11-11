@@ -19,13 +19,13 @@ class HTMLConverterUI:
 
     def __init__(self, process_html_callback):
         self.process_html_callback = process_html_callback
-        self.uploaded_file_name: Optional[str] = None
+        self.uploaded_file_names: list[str] = []
         self.pagination_main = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
         self.pagination_group = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
 
 
         # Estado
-        self.uploaded_file_content: Optional[bytes] = None
+        self.uploaded_file_contents: list[bytes] = []
         self.processed_data: Optional[pd.DataFrame] = None
         self.grouped_data: Optional[pd.DataFrame] = pd.DataFrame()
         self.backend_selected: Optional[str] = None  
@@ -51,8 +51,13 @@ class HTMLConverterUI:
     async def handle_upload(self, e):
         try:
             logger.info(f"Iniciando carga de archivo: {e.file.name}")
-            self.uploaded_file_content = await e.file.read()
-            logger.info(f"Archivo leído correctamente: {len(self.uploaded_file_content)} bytes")
+
+            # Leer archivo y agregarlo a la lista
+            file_bytes = await e.file.read()
+            self.uploaded_file_contents.append(file_bytes)
+            self.uploaded_file_names.append(e.file.name)
+
+            logger.info(f"Archivo leído correctamente: {len(file_bytes)} bytes")
 
             if self.process_button:
                 self.process_button.enable()
@@ -63,9 +68,6 @@ class HTMLConverterUI:
             if self.group_table_card:
                 self.group_table_card.visible = False
 
-            self.uploaded_file_name = e.file.name  # Guarda el nombre del archivo
-
-
             ui.notify(f"Archivo '{e.file.name}' cargado correctamente.", type='positive')
 
         except Exception as ex:
@@ -73,41 +75,44 @@ class HTMLConverterUI:
             ui.notify(f"Error al cargar archivo: {ex}", type='negative')
 
     def process_file(self, e):
-        if self.uploaded_file_content is None:
+        if not self.uploaded_file_contents:
             ui.notify("No hay archivo para procesar.", type='negative')
             return
 
-        # --- 🔄 Reiniciar tablas y datos previos ---
+        # Reiniciar tablas y datos previos
         self.processed_data = None
         self.grouped_data = pd.DataFrame()
         self.selected_rows = []
         self.selected_group_rows = []
         self.reset_search_input(e)
         self.reset_group_search_input(e)
-        
-        # Limpiar contenido visual de tablas
+
         if self.table:
             self.table.rows = []
             self.table.update()
         if self.group_table:
             self.group_table.rows = []
             self.group_table.update()
-
-        # Ocultar las tarjetas mientras no haya datos
         if self.table_card:
             self.table_card.visible = False
         if self.group_table_card:
             self.group_table_card.visible = False
-
-        # Deshabilitar botones dependientes
         if self.download_button:
             self.download_button.disable()
 
-        # --- Procesar archivo normalmente ---
-        df = self.process_html_callback(self.uploaded_file_content)
+        # Llamar al backend correcto
+        if self.backend_selected == "Dixell":
+            df = self.process_html_callback(self.uploaded_file_contents)
+        else:
+            df = self.process_html_callback(self.uploaded_file_contents[0])
 
         if df is not None and not df.empty:
             self.processed_data = df
+            # Aquí irían tus funciones para mostrar la tabla
+            self.display_table()
+            self.update_group_table()
+            if self.download_button:
+                self.download_button.enable()
 
             # --- Detectar filas ya clasificadas ---
             valid_groups1 = [
@@ -171,7 +176,7 @@ class HTMLConverterUI:
             ] = df_display['id'].astype(str).map(category_map)
 
 
-        cols = ["id", "estado", "register", "name", "description", "system_category",
+        cols = ["id", "estado", "register", "name", "description", "system_category","category",
                 "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
@@ -208,10 +213,10 @@ class HTMLConverterUI:
                 df_to_export = self.processed_data
                 file_name = 'parametros_convertidos.xlsx'
 
-            if 'category' in df_to_export.columns:
-                df_to_export['category'] = np.nan
+            #if 'category' in df_to_export.columns:
+            #   df_to_export['category'] = np.nan
             
-            if 'category' in df_to_export.columns:
+            if 'id' in df_to_export.columns:
                 df_to_export['id']=np.nan
 
             with NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
@@ -261,7 +266,7 @@ class HTMLConverterUI:
                 ui.label('0. Seleccionar Backend').classes('text-lg font-bold')
                 ui.separator()
                 self.backend_selector = ui.select(
-                    options=['Keyter', 'iPro', 'Cefa'],
+                    options=['Keyter', 'iPro', 'Cefa', 'Dixell'],
                     label='Selecciona el backend',
                     on_change=self.handle_backend_selection
                 ).props('outlined dense clearable').classes('w-64')
@@ -311,6 +316,8 @@ class HTMLConverterUI:
             file_accept = '.xlsx'
         elif backend == 'Cefa':
             file_accept = '.pdf'
+        elif backend == 'Dixell':
+            file_accept = '.pdf'
         elif backend == 'General':
             file_accept = '.xlsx,.xls,.xlsm,.html,.htm,.pdf'
         else:
@@ -330,7 +337,8 @@ class HTMLConverterUI:
     def _reset_ui_state(self):
         """Reinicia el estado de la interfaz al cambiar de backend."""
         # Limpiar archivo subido
-        self.uploaded_file_content = None
+        self.uploaded_file_contents = []
+        self.uploaded_file_names = []
 
         # Limpiar DataFrames
         self.processed_data = None
@@ -367,26 +375,41 @@ class HTMLConverterUI:
             self.upload_container.clear()  # Limpia el contenedor anterior
 
         with self.upload_container:
+            # Configuración base del componente
+            max_files = 1
+            accept_types = ""
 
+            # 🔹 Configurar según backend seleccionado
+            if self.backend_selected == "Keyter":
+                accept_types = ".xls,.xlsx,.xlsm,.html,.htm"
+            elif self.backend_selected == "iPro":
+                accept_types = ".xlsx"
+            elif self.backend_selected == "Cefa":
+                accept_types = ".pdf"
+            elif self.backend_selected == "Dixell":
+                accept_types = ".pdf"
+                max_files = 2  
+            elif self.backend_selected == "General":
+                accept_types = ".xls,.xlsx,.xlsm,.html,.htm,.pdf"
+            else:
+                accept_types = ""
+                max_files = 0
+
+            # 🔹 Crear componente de subida
             self.upload_component = ui.upload(
                 label="Seleccionar o arrastrar archivo aquí",
                 auto_upload=True,
-                max_files=1,
-            ).props('flat bordered square no-wrap').classes(
-                'w-96 h-32 justify-left items-left text-center bg-gray-50 hover:bg-gray-100 rounded-2xl border border-gray-300'
+                max_files=max_files,
+            ).props(f'flat bordered square no-wrap accept="{accept_types}"').classes(
+                'w-96 h-32 justify-left items-left text-center bg-gray-50 hover:bg-gray-100 '
+                'rounded-2xl border border-gray-300'
             )
 
+            # Asociar el manejador de subida
             self.upload_component.on_upload(self.handle_upload)
 
-            if self.backend_selected == "Keyter":
-                self.upload_component.props('accept=".xls",".xlsx",".xlsm",".html",".htm"')
-            elif self.backend_selected == "iPro":
-                self.upload_component.props('accept=".xlsx"')
-            elif self.backend_selected == "Cefa":
-                self.upload_component.props('accept=".pdf"')
-            elif self.backend_selected == "General":
-                self.upload_component.props('accept=".xls",".xlsx",".xlsm",".html",".htm",".pdf"')
-            else:
+            # 🔹 Deshabilitar si el backend no tiene formatos válidos
+            if not accept_types:
                 self.upload_component.disable()
 
 
@@ -1038,7 +1061,7 @@ class HTMLConverterUI:
             return
 
         if self.grouped_data is not None and not self.grouped_data.empty:
-            cols = ["id", "register", "name", "description", "system_category",
+            cols = ["id", "register", "name", "description", "system_category", "category",
                 "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
             self.group_table.columns = [
@@ -1467,7 +1490,7 @@ class HTMLConverterUI:
             if self.processed_data is None or self.processed_data.empty:
                 self.processed_data = pd.DataFrame(columns=[
                     'id', 'register', 'name', 'description', 'read', 'write', 'sampling',
-                    'minvalue', 'maxvalue', 'unit', 'view', 'system_category'
+                    'minvalue', 'maxvalue', 'unit', 'view', 'system_category', "category",
                 ])
 
             # Generar un nuevo ID único
@@ -1553,7 +1576,7 @@ class HTMLConverterUI:
                 return
 
             # Columnas que se exportarán
-            selected_cols = ["register", "name", "minvalue", "maxvalue", "unit", "read", "write"]
+            selected_cols = ["register", "name", "minvalue", "maxvalue", "unit", "read", "write", "category",]
 
             # Validar que las columnas existan
             missing = [c for c in selected_cols if c not in df_source.columns]

@@ -6,11 +6,13 @@ from openpyxl import Workbook
 import logging
 import re
 import numpy as np
+from openpyxl import load_workbook
+from io import BytesIO
 
 # ====================================================
 # Configuración de logging
 # ====================================================
-logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # ====================================================
@@ -30,7 +32,7 @@ ENCABEZADOS_EQUIVALENTES = {
     "DEVICE ID": ["DEVICE ID"],
     "ANALOG INPUT": ["ANALOG INPUT", "ANALOG"],
     "SET POINT": ["SET POINT", "SETPOINT", "SP"],
-    "Device Status": ["DEVICE STATUS", "STATUS"],
+    "Device Status": ["DEVICE STATUS", "STATUS", "Device Status ", "Device Status"],
     "DIGITAL INPUT": ["DIGITAL INPUT", "DI"],
     "DIGITAL OUTPUT": ["DIGITAL OUTPUT", "DO"],
     "DIGITAL OUTPUT/INPUT": ["DIGITAL OUTPUT/INPUT", "DIGITAL I/O", "DIGITAL IN/OUT", "DIGITAL IO"],
@@ -61,7 +63,8 @@ COLUMNAS_VALIDAS1 = {
 }
 
 COLUMNAS_VALIDAS2 = {
-    "Dec": ["Dec", "Decimals", "Resolution"],
+    "R/W": ["R / W", "RW", "Access", "Acceso", "R/W"],
+    "REGISTER[hex]": ["Dec", "Decimals", "Resolution"],
     "DEC": ["DEC", "DECIMAL"] ,
     "REGISTER[hex]": ["REGISTER[hex]", "HEX"],
     "VAR NAME": ["VAR NAME", "VAR"],
@@ -86,7 +89,7 @@ COLUMN_MAPPING2 = {
     "VAR NAME": "name",
     "DESCRIPTION": "description",
     "GROUP": "category",
-    "Dec": "register",
+    "REGISTER[hex]": "register",
     "LENGHT": "lenght",
     "TYPE": "value"
 }
@@ -124,7 +127,7 @@ DEFAULT_VALUES = {
 # ====================================================
 def limpiar_dataframe(df):
     if df is None or df.empty:
-        return df
+        return pd.DataFrame()
     return df.reset_index(drop=True)
 
 def eliminar_filas_vacias_completas(df):
@@ -153,71 +156,103 @@ def hex_to_dec(val):
             return int(val, 16)
         elif all(c in "0123456789abcdefABCDEF" for c in val) and val != "":
             return int(val, 16)
+        elif re.match(r'^\d+$', val):
+            return int(val)
         else:
+            # keep as-is (may be descriptive)
             return val
     except Exception:
         return val
 
+# ====================================================
+# Reglas y transformaciones defensivas
+# ====================================================
+def _ensure_columns(df: pd.DataFrame, cols: list, default_vals: dict = None) -> pd.DataFrame:
+    if df is None:
+        df = pd.DataFrame()
+    for col in cols:
+        if col not in df.columns:
+            if default_vals and col in default_vals:
+                df[col] = default_vals[col]
+            else:
+                df[col] = ""
+    return df
+
 def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
-    if 'system_category' in df.columns:
-        df = df.copy()
-        df['system_category'] = df['system_category'].astype(str).str.strip().str.lower()
+    # defensiva: si no existe 'name' o 'system_category', crearlas
+    df = df.copy()
+    if 'name' not in df.columns:
+        df['name'] = ""
+    if 'system_category' not in df.columns:
+        df['system_category'] = ""
 
-        mapping = {
-            'set point': 'SET_POINT',
-            'analog input': 'ANALOG_INPUT',
-            'alarms': 'ALARM',
-            'commands': 'COMMAND',
-            'digital input': 'DIGITAL_INPUT',
-            'digital output': 'DIGITAL_OUTPUT',
-            'serial output': 'SERIAL_OUTPUT',
-            'device status': 'STATUS',
-            'sistema': 'SYSTEM',
-            'device id': 'SYSTEM'
-        }
+    # normalizar
+    df['name'] = df['name'].astype(str).str.strip()
+    df['system_category'] = df['system_category'].astype(str).str.strip().str.lower()
 
-        df['system_category'] = df['system_category'].replace(mapping)
-        df['system_category'] = df['system_category'].str.upper()
+    mapping = {
+        'set point': 'SET_POINT',
+        'analog input': 'ANALOG_INPUT',
+        'alarms': 'ALARM',
+        'commands': 'COMMAND',
+        'digital input': 'DIGITAL_INPUT',
+        'digital output': 'DIGITAL_OUTPUT',
+        'serial output': 'SERIAL_OUTPUT',
+        'device status': 'STATUS',
+        'sistema': 'SYSTEM',
+        'device id': 'SYSTEM',
+        'general rules': 'CONFIG_PARAMETER'
+    }
 
-        df = df[~df['system_category'].isin(['NONE', '', 'NAN', None])].copy()
+    df['system_category'] = df['system_category'].replace(mapping)
+    df['system_category'] = df['system_category'].str.upper()
 
-        if "system_category" in df.columns:
-            system_type = df['system_category'].astype(str).str.upper().str.strip()
-            df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
-        
-        mask_do = df['name'].str.contains(r'output', case=False, na=False)
-        df.loc[mask_do, 'system_category'] = 'DIGITAL_OUTPUT'
-        logger.info(f"{mask_do.sum()} filas marcadas como DIGITAL_OUTPUT")
+    # eliminar filas con categorías inválidas
+    df = df[~df['system_category'].isin(['NONE', '', 'NAN', None])].copy()
 
-        mask_di = df['name'].str.contains(r'input', case=False, na=False)
-        df.loc[mask_di, 'system_category'] = 'DIGITAL_INPUT'
-        logger.info(f"{mask_di.sum()} filas marcadas como DIGITAL_INPUT")
+    # tags based on system_category
+    system_type = df['system_category'].astype(str).str.upper().str.strip()
+    df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
+
+    # marcar por 'name' si contiene output/input
+    mask_do = df['name'].str.contains(r'output', case=False, na=False)
+    df.loc[mask_do, 'system_category'] = 'DIGITAL_OUTPUT'
+    logger.info(f"{mask_do.sum()} filas marcadas como DIGITAL_OUTPUT")
+
+    mask_di = df['name'].str.contains(r'input', case=False, na=False)
+    df.loc[mask_di, 'system_category'] = 'DIGITAL_INPUT'
+    logger.info(f"{mask_di.sum()} filas marcadas como DIGITAL_INPUT")
 
     return df
 
 def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
-    if 'read' not in df.columns:
-        df['read'] = 0
-    if 'write' not in df.columns:
-        df['write'] = 0
-
+    # defensiva: asegurar columnas
+    df = _ensure_columns(df, ['read', 'write'])
     df.columns = df.columns.astype(str).str.strip()
     only_read = pd.Series(False, index=df.index)
     rw = pd.Series(False, index=df.index)
 
+    # Unificar la columna de acceso si existe
     if 'R / W' in df.columns:
-        access = df['R / W'].astype(str).str.upper().str.strip()
+        df.rename(columns={'R / W': 'R_W'}, inplace=True)
+    elif 'R/W' in df.columns:
+        df.rename(columns={'R/W': 'R_W'}, inplace=True)
+
+    if 'R_W' in df.columns:
+        access = df['R_W'].astype(str).str.upper().str.strip()
 
         only_read = access == 'R'
+        only_write = access == 'W'
         rw = access == 'R/W'
 
-        df.loc[access == 'R', 'read'] = 4
-        df.loc[access == 'W', 'write'] = 6
-        df.loc[access == 'R/W', 'read'] = 3
-        df.loc[access == 'R/W', 'write'] = 6
+        df.loc[only_read, 'read'] = 4
+        df.loc[only_write, 'write'] = 6
+        df.loc[rw, 'read'] = 3
+        df.loc[rw, 'write'] = 6
 
-        df.drop(columns=['R / W'], inplace=True, errors='ignore')
+        df.drop(columns=['R_W'], inplace=True, errors='ignore')
 
+    # Ajustes por system_category
     if 'system_category' in df.columns:
         system_type = df['system_category'].astype(str).str.upper().str.strip()
 
@@ -232,6 +267,11 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
             df.loc[mask, 'read'] = 3
             df.loc[mask, 'write'] = 10
 
+        mask = rw & system_type.isin(['CONFIG_PARAMETER'])
+        if mask.any():
+            df.loc[mask, 'read'] = 3
+            df.loc[mask, 'write'] = 10
+
         mask = rw & system_type.isin(['DIGITAL_OUTPUT'])
         if mask.any():
             df.loc[mask, 'read'] = 1
@@ -241,26 +281,39 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         if mask.any():
             df.loc[mask, 'read'] = 1
 
+    # asegurar tipo int para read/write cuando correspondan
+    for col in ['read', 'write']:
+        try:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+        except Exception:
+            df[col] = df[col].apply(lambda x: int(x) if str(x).isdigit() else 0)
+
     return df
 
 def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
+    # defensiva: si falta system_category, crearla
+    if "system_category" not in df.columns:
+        df["system_category"] = "DEFAULT"
+
     mapping = {
-        "ALARM": 30, 
-        "SET_POINT": 300, 
-        "DEFAULT": 0, 
-        "COMMAND": 0, 
-        "STATUS": 60, 
-        "SYSTEM": 0, 
-        "CONFIG_PARAMETER": 0, 
-        "ANALOG_INPUT": 60, 
-        "ANALOG_OUTPUT":60,
-        "DIGITAL_INPUT": 60, 
-        "DIGITAL_OUTPUT":60,
-        }
+        "ALARM": 30,
+        "SET_POINT": 300,
+        "DEFAULT": 0,
+        "COMMAND": 0,
+        "STATUS": 60,
+        "SYSTEM": 0,
+        "CONFIG_PARAMETER": 0,
+        "ANALOG_INPUT": 60,
+        "ANALOG_OUTPUT": 60,
+        "DIGITAL_INPUT": 60,
+        "DIGITAL_OUTPUT": 60,
+    }
     df["sampling"] = df["system_category"].map(mapping).fillna(0)
     return df
 
 def _apply_view_rules(df: pd.DataFrame) -> pd.DataFrame:
+    if "system_category" not in df.columns:
+        df["system_category"] = "DEFAULT"
     view = {
         'ALARM': 'simple',
         'SET_POINT': "simple",
@@ -295,7 +348,7 @@ def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
 
     df["length"] = None
     if "system_category" in df.columns:
-        df.loc[df["system_category"].isin(category_mapping.keys()), 
+        df.loc[df["system_category"].isin(category_mapping.keys()),
                "length"] = df["system_category"].map(category_mapping)
 
     return df
@@ -303,15 +356,26 @@ def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
 def _apply_unit_rules(df: pd.DataFrame) -> pd.DataFrame:
     unit = {
         'par "CF"': "°C",
-        'RPM': "rpm"
+        'RPM': "rpm",
+        'ºC': "°C",
+        'C': "°C"
     }
-    df['unit'] = df['unit'].map(unit).fillna('')
+    # map donde hay coincidencias, dejar el resto como está
+    df['unit'] = df['unit'].map(unit).fillna(df['unit'].astype(str).fillna(''))
     return df
 
 # ====================================================
-# Función principal
+# Función principal (robusta)
 # ====================================================
-def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
+def process_dixell(pdf_content: bytes) -> pd.DataFrame:
+    logger.info("Procesando archivo PDF (en memoria, usando bytes)...")
+
+    try:
+        pdf_io = BytesIO(pdf_content)
+    except Exception as e:
+        logger.exception(f"Error creando BytesIO: {e}")
+        return pd.DataFrame(columns=LIBRARY_COLUMNS)
+
     descripcion = []
     zonas_colores = []
     tablas_detectadas = 0
@@ -319,108 +383,118 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
     ultima_hoja_valida = None
 
     # --- Detectar zonas coloreadas ---
-    with fitz.open(pdf_path) as pdf:
-        for num, pagina in enumerate(pdf, start=1):
-            for d in pagina.get_drawings():
-                color = d.get("fill")
-                if color and any(c > 0 for c in color):
-                    zonas_colores.append((num, color))
+    try:
+        with fitz.open(stream=pdf_io, filetype="pdf") as pdf:
+            for num, pagina in enumerate(pdf, start=1):
+                # get_drawings puede fallar si la página no tiene dibujos
+                try:
+                    for d in pagina.get_drawings():
+                        color = d.get("fill")
+                        if color and any(c > 0 for c in color):
+                            zonas_colores.append((num, color))
+                except Exception:
+                    continue
         descripcion.append(f"🔹 Zonas con color detectadas: {len(zonas_colores)}")
+    except Exception as e:
+        logger.warning(f"Imposible analizar dibujos con fitz: {e}")
 
-    # --- Detectar tablas ---
-    with pdfplumber.open(pdf_path) as pdf:
-        for num, pagina in enumerate(pdf.pages, start=1):
-            tablas = pagina.extract_tables()
-            if tablas:
-                tablas_detectadas += len(tablas)
-                descripcion.append(f"📄 Página {num}: {len(tablas)} tabla(s) detectada(s).")
+    # --- Reiniciar el buffer para pdfplumber ---
+    pdf_io.seek(0)
 
-                for i, tabla in enumerate(tablas, start=1):
-                    df = pd.DataFrame(tabla)
-                    encabezado = ", ".join([str(x).strip() for x in tabla[0] if x]) if len(tabla) > 0 else ""
-                    encabezado_principal = None
+    # --- Detectar tablas con pdfplumber (más tolerante) ---
+    try:
+        with pdfplumber.open(pdf_io) as pdf:
+            for num, pagina in enumerate(pdf.pages, start=1):
+                try:
+                    tablas = pagina.extract_tables()
+                except Exception as e:
+                    logger.warning(f"pdfplumber fallo en página {num}: {e}")
+                    tablas = None
 
-                    for clave, alias_list in ENCABEZADOS_EQUIVALENTES.items():
-                        if any(alias.strip() == encabezado.strip() for alias in alias_list):
-                            encabezado_principal = clave
-                            break
+                if tablas:
+                    tablas_detectadas += len(tablas)
+                    descripcion.append(f"📄 Página {num}: {len(tablas)} tabla(s) detectada(s).")
 
-                    if encabezado_principal:
-                        logger.info(f"🔹 Encabezado '{encabezado_principal}' detectado en página {num}, tabla {i}")
-                        ultima_hoja_valida = encabezado_principal
-                        hojas[encabezado_principal] = pd.concat(
-                            [hojas.get(encabezado_principal, pd.DataFrame()), df],
-                            ignore_index=True
-                        )
-                    else:
-                        if ultima_hoja_valida:
-                            hojas[ultima_hoja_valida] = pd.concat(
-                                [hojas[ultima_hoja_valida], df],
+                    for i, tabla in enumerate(tablas, start=1):
+                        df = pd.DataFrame(tabla)
+                        # construir encabezado textual para detectar secciones
+                        encabezado = ", ".join([str(x).strip() for x in tabla[0] if x]) if len(tabla) > 0 else ""
+                        encabezado_principal = None
+
+                        for clave, alias_list in ENCABEZADOS_EQUIVALENTES.items():
+                            if any(alias.strip().lower() == encabezado.strip().lower() for alias in alias_list):
+                                encabezado_principal = clave
+                                break
+
+                        if encabezado_principal:
+                            logger.info(f"🔹 Encabezado '{encabezado_principal}' detectado en página {num}, tabla {i}")
+                            ultima_hoja_valida = encabezado_principal
+                            hojas[encabezado_principal] = pd.concat(
+                                [hojas.get(encabezado_principal, pd.DataFrame()), df],
                                 ignore_index=True
                             )
                         else:
-                            hojas.setdefault("SinClasificar", pd.DataFrame())
-                            hojas["SinClasificar"] = pd.concat(
-                                [hojas["SinClasificar"], df],
-                                ignore_index=True
-                            )
+                            if ultima_hoja_valida:
+                                hojas[ultima_hoja_valida] = pd.concat(
+                                    [hojas[ultima_hoja_valida], df],
+                                    ignore_index=True
+                                )
+                            else:
+                                hojas.setdefault("SinClasificar", pd.DataFrame())
+                                hojas["SinClasificar"] = pd.concat(
+                                    [hojas["SinClasificar"], df],
+                                    ignore_index=True
+                                )
+    except Exception as e:
+        logger.exception(f"Error abriendo PDF con pdfplumber: {e}")
+        return pd.DataFrame(columns=LIBRARY_COLUMNS)
 
-    # --- Limpiar y guardar ---
-    with pd.ExcelWriter(salida_excel, engine='openpyxl') as escritor:
-        hojas_limpiadas = {}
+    # --- Limpieza de datos ---
+    hojas_limpiadas = {}
 
-        for nombre, df in hojas.items():
-            df_limpio = limpiar_dataframe(df)
-            df_limpio = eliminar_filas_vacias_completas(df_limpio)
+    # recorrer hojas detectadas y limpiar
+    for nombre, df in hojas.items():
+        df_limpio = limpiar_dataframe(df)
+        df_limpio = eliminar_filas_vacias_completas(df_limpio)
+        logger.info("\n==== df_final - df_limpio 1====")
+        logger.info(df_limpio.head(10))
 
-            # --- Buscar fila que coincida con columnas válidas ---
-            fila_encabezado_idx = None
-            for i, fila in df_limpio.iterrows():
-                fila_str = [str(x).strip().lower() for x in fila]
-                if any(
-                    any(f in [a.lower() for a in alias_list] for alias_list in COLUMNAS_VALIDAS1.values())
-                    or any(f in [a.lower() for a in alias_list] for alias_list in COLUMNAS_VALIDAS2.values())
-                    for f in fila_str
-                ):
+        # --- Buscar fila de encabezado válido ---
+        fila_encabezado_idx = None
+        for i, fila in df_limpio.iterrows():
+            fila_str = [str(x).strip().lower() for x in fila]
+            found = False
+            for f in fila_str:
+                if any(f in [a.lower() for a in alias_list] for alias_list in COLUMNAS_VALIDAS1.values()) \
+                   or any(f in [a.lower() for a in alias_list] for alias_list in COLUMNAS_VALIDAS2.values()):
                     fila_encabezado_idx = i
+                    found = True
                     break
+            if found:
+                break
 
-           # --- Si se encontró encabezado, eliminar filas anteriores ---
-            if fila_encabezado_idx is not None:
-                df_limpio = df_limpio.iloc[fila_encabezado_idx:].reset_index(drop=True)
+        # --- Eliminar filas previas antes del encabezado ---
+        if fila_encabezado_idx is not None:
+            df_limpio = df_limpio.iloc[fila_encabezado_idx:].reset_index(drop=True)
+            logger.info("\n==== df_final - df_limpio 2====")
+            logger.info(df_limpio.head(10))
 
-                # --- Detectar si la primera fila es 'meta' (HEX, DEC, etc.) y eliminarla ---
-                if not df_limpio.empty:
-                    primera_fila = [str(x).strip().lower() for x in df_limpio.iloc[0].tolist()]
-                    palabras_meta = {"hex", "dec", "decimal", "direccion", "dir", ""}
-                    total = len([x for x in primera_fila if x != ""])
-                    coincidencias = sum(1 for x in primera_fila if x in palabras_meta)
-
-                    logger.info(f"[DEBUG] Primera fila después del corte en hoja '{nombre}': {primera_fila}")
-                    logger.info(f"[DEBUG] Coincidencias meta={coincidencias}, total_no_vacios={total}")
-
-                    # Si más del 50% de las celdas son meta o vacías → eliminar esa fila
-                    if total == 0 or coincidencias >= total * 0.2:
-                        logger.info(f"Eliminando fila 'meta' en hoja '{nombre}' (parece ser encabezado falso tipo HEX)")
-                        df_limpio = df_limpio.iloc[1:].reset_index(drop=True)
-
-            else:
-                logger.warning(f"No se encontró fila de encabezado válida en hoja '{nombre}'")
-
-                
-
+            # --- Verificar si la primera fila es 'meta' (HEX, DEC, etc.) ---
             if not df_limpio.empty:
-                encabezado_detectado = ", ".join([str(x) for x in df_limpio.iloc[0].tolist() if pd.notna(x)])
-            else:
-                encabezado_detectado = "Sin encabezado (hoja vacía)"
+                primera_fila = [str(x).strip().lower() for x in df_limpio.iloc[0].tolist()]
+                palabras_meta = {"hex", "dec", "decimal", "direccion", "dir", ""}
+                total = len([x for x in primera_fila if x != ""])
+                coincidencias = sum(1 for x in primera_fila if x in palabras_meta)
 
-            logger.info(f"Encabezado detectado en hoja '{nombre}': {encabezado_detectado}")
+                if total == 0 or coincidencias >= total * 0.2:
+                    logger.info(f"Eliminando fila 'meta' en hoja '{nombre}' (parece ser encabezado falso tipo HEX)")
+                    df_limpio = df_limpio.iloc[1:].reset_index(drop=True)
+        else:
+            logger.warning(f"No se encontró fila de encabezado válida en hoja '{nombre}'")
 
-            hojas_limpiadas[nombre] = df_limpio
-            nombre_hoja = re.sub(r'[:\\/*?\[\]/]', '_', nombre)[:31]
-            df_limpio.to_excel(escritor, sheet_name=nombre_hoja, index=False, header=False)
+        hojas_limpiadas[nombre] = df_limpio
 
-        # --- Concatenar todas las tablas válidas ---
+    # --- Concatenar todas las tablas válidas ---
         todas = []
         for nombre, df in hojas_limpiadas.items():
             if nombre != "SinClasificar" and not df.empty:
@@ -490,21 +564,22 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
 
         if todas:
             df_final = pd.concat(todas, ignore_index=True)
-            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info("\n==== df_final - 1====")
             logger.info(df_final.head(10))
+
 
             # 🔹 Combinar "Read Register" y "Write Register" correctamente
             read_vals = df_final["Read Register"] if "Read Register" in df_final.columns else pd.Series([""] * len(df_final))
             write_vals = df_final["Write Register"] if "Write Register" in df_final.columns else pd.Series([""] * len(df_final))
             reg_vals = df_final["Register"] if "Register" in df_final.columns else pd.Series([""] * len(df_final))
-            dec_vals = df_final["Dec"] if "Dec" in df_final.columns else pd.Series([""]* len(df_final))
+            rh_vals = df_final["REGISTER[hex]"] if "REGISTER[hex]" in df_final.columns else pd.Series([""]* len(df_final))
             
             df_final["register"] = read_vals.fillna("").astype(str)
             df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), write_vals)
             df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), reg_vals)
-            df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), dec_vals)
+            df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), rh_vals)
 
-            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info("\n==== df_final - 2====")
             logger.info(df_final.head(10))
 
             # Copiar las demás columnas según el mapeo
@@ -516,7 +591,7 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
             for col in LIBRARY_COLUMNS:
                 if col not in df_final.columns:
                     df_final[col] = DEFAULT_VALUES.get(col, "")
-            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info("\n==== df_final - 3====")
             logger.info(df_final.head(10))
 
             # 🔹 Eliminar filas sin 'register' ni 'name'
@@ -524,7 +599,7 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
                 ~((df_final["register"].fillna("").astype(str).str.strip() == "") &
                   (df_final["name"].fillna("").astype(str).str.strip() == ""))
             ].reset_index(drop=True)
-            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info("\n==== df_final - 3====")
             logger.info(df_final.head(10))
 
             # 🔹 Convertir 'register' y 'value' a decimal
@@ -536,6 +611,8 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
                 df_final["value"] = df_final["value"].apply(
                     lambda x: x if re.fullmatch(r"^-?\d+(\.\d+)?$", x.strip()) else "0"
                 )
+            else:
+                logger.warning("⚠️ No se encontró la columna 'register' tras mapeo.")
 
             # Procesar reglas
             df_final = _process_specific_columns(df_final)
@@ -544,11 +621,11 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
             df_final = _apply_view_rules(df_final)
             df_final = _determine_data_length(df_final)
             df_final = _apply_unit_rules(df_final)
-            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info("\n==== df_final - 4====")
             logger.info(df_final.head(10))
 
             df_final = df_final[LIBRARY_COLUMNS]
-            logger.info("\n==== df_final - Después de concatenar todas las hojas 5====")
+            logger.info("\n==== df_final - 5====")
             logger.info(df_final.head(10))
 
             # 🔹 Limpiar filas vacías y categorías no deseadas
@@ -556,28 +633,92 @@ def process_dixell(pdf_path, salida_excel="tablas_extraidas.xlsx"):
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("CLOCK", na=False)]
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("SERIAL_OUTPUT", na=False)]
 
-            df_final.to_excel(escritor, sheet_name="Todas las Tablas", index=False)
+            logger.info("\n==== df_final - 6====")
+            logger.info(df_final.head(10))
 
-    descripcion.append(f"🔹 Total de tablas detectadas: {tablas_detectadas}")
-    descripcion.append(f"🔹 Total de zonas coloreadas: {len(zonas_colores)}")
+    logger.info(f"✅ Total filas finales: {len(df_final)}")
+    logger.info(f"==== DESCRIPCIÓN DEL PDF ====\n\n" + "\n".join(descripcion))
 
-    print("\n==== DESCRIPCIÓN DEL PDF ====\n")
-    for linea in descripcion:
-        print(linea)
-    print(f"\n✅ Análisis completado. Se eliminaron las primeras 3 filas, se limpiaron filas vacías y se convirtieron valores a decimal correctamente.\n")
+    return df_final
 
 # ====================================================
-# Ejecución
+# Función para procesar múltiples pdfs (interfaz)
+# ====================================================
+def process_multiple_pdfs(pdf_contents: list, salida_excel: str = "tablas_extraidas.xlsx") -> pd.DataFrame:
+    """
+    Procesa múltiples archivos PDF (dados como bytes) usando process_dixell()
+    y concatena sus resultados en un único DataFrame.
+    """
+    resultados = []
+
+    logger.info(f"📥 Recibidos {len(pdf_contents)} elementos para procesar")
+
+    for i, pdf_content in enumerate(pdf_contents, start=1):
+        logger.info(f"🔍 Elemento {i}: tipo {type(pdf_content).__name__}")
+
+        if not isinstance(pdf_content, (bytes, bytearray)):
+            logger.warning(f"⚠️ El elemento {i} no es bytes, se omitirá")
+            continue
+
+        logger.info(f"🔹 Procesando archivo {i} ({len(pdf_content)} bytes)")
+        df_temp = process_dixell(pdf_content)
+        if df_temp is None:
+            logger.warning(f"❌ process_dixell devolvió None para el elemento {i}")
+            continue
+        df_temp["source_file"] = f"pdf_{i}"
+        resultados.append(df_temp)
+
+    if resultados:
+        df_concat = pd.concat(resultados, ignore_index=True)
+        # Asegurar columnas finales
+        for col in LIBRARY_COLUMNS + ["source_file"]:
+            if col not in df_concat.columns:
+                df_concat[col] = DEFAULT_VALUES.get(col, "")
+        try:
+            df_concat.to_excel(salida_excel, index=False)
+            logger.info(f"✅ Archivos concatenados guardados en {salida_excel}")
+        except Exception as e:
+            logger.warning(f"No se pudo guardar el Excel: {e}")
+        return df_concat
+    else:
+        logger.warning("⚠️ No se detectaron datos válidos en ninguno de los PDFs.")
+        return pd.DataFrame(columns=LIBRARY_COLUMNS)
+
+# ====================================================
+# Ejecución directa (CLI)
 # ====================================================
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Uso: python process_dixell.py <archivo.pdf> [salida.xlsx]")
+        print("Uso: python process_dixell.py <archivo1.pdf> [archivo2.pdf ...] [salida.xlsx]")
         sys.exit(1)
 
-    pdf_path = sys.argv[1]
-    salida_excel = sys.argv[2] if len(sys.argv) > 2 else "tablas_extraidas.xlsx"
+    # Si el último argumento es un .xlsx, lo tomamos como salida
+    if sys.argv[-1].endswith(".xlsx"):
+        salida_excel = sys.argv[-1]
+        pdf_paths = sys.argv[1:-1]
+    else:
+        salida_excel = "tablas_extraidas.xlsx"
+        pdf_paths = sys.argv[1:]
 
     try:
-        process_dixell(pdf_path, salida_excel)
+        pdf_bytes_list = []
+        for p in pdf_paths:
+            try:
+                with open(p, "rb") as f:
+                    pdf_bytes_list.append(f.read())
+            except Exception as e:
+                logger.warning(f"No se pudo leer {p}: {e}")
+
+        if not pdf_bytes_list:
+            logger.error("No se pudieron leer archivos PDF. Abortando.")
+            sys.exit(1)
+
+        df_final = process_multiple_pdfs(pdf_bytes_list, salida_excel)
+        if df_final is not None and not df_final.empty:
+            print("\n✅ Primeras filas del DataFrame:")
+            print(df_final.head())
+            print(f"\n📘 Datos exportados a Excel (si lo permitía el entorno): {salida_excel}")
+        else:
+            print("⚠️ No se extrajo información útil de los PDFs.")
     except Exception as e:
-        logger.error(f"❌ Error al analizar el PDF: {e}")
+        logger.error(f"❌ Error al analizar los PDF: {e}")
