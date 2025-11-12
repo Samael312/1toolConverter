@@ -33,7 +33,7 @@ COLUMN_MAPPING_PDF = {
 }
 
 DEFAULT_VALUES = {
-    "system_category": "STATUS",
+    "system_category": "DEFAULT",
     "category": "DEFAULT",
     "view": "basic",
     "sampling": 0,
@@ -526,7 +526,7 @@ def _apply_unit_rules(df: pd.DataFrame) -> pd.DataFrame:
 # Función principal
 # ====================================================
 def process_pdf(pdf_content: bytes) -> pd.DataFrame:
-    logger.info("Procesando archivo PDF con backend Keyter...")
+    logger.info("Procesando archivo PDF con backend Cefa...")
     pdf_io = BytesIO(pdf_content)
     tablas = []
 
@@ -585,6 +585,16 @@ def process_pdf(pdf_content: bytes) -> pd.DataFrame:
 
     df["id"] = range(1, len(df) + 1)
     df = df.reindex(columns=LIBRARY_COLUMNS)
+
+    # ======= Debug detallado para columna 'register' =======
+    if "register" in df.columns:
+        logger.info(f"✅ Columna 'register' encontrada.")
+        logger.info(f"Tipo de 'register': {df['register'].dtype}")
+        logger.info(f"Primeros 10 valores: {df['register'].head(10).tolist()}")
+        logger.info(f"Valores únicos (máx 20): {df['register'].unique()[:20]}")
+        logger.info(f"Cantidad de valores nulos: {df['register'].isna().sum()}")
+    else:
+        logger.warning("⚠️ La columna 'register' NO existe después del renombrado")
 
     logger.info(f"Procesamiento completado: {len(df)} filas finales.")
     return df

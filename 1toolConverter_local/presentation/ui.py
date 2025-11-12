@@ -19,13 +19,13 @@ class HTMLConverterUI:
 
     def __init__(self, process_html_callback):
         self.process_html_callback = process_html_callback
-        self.uploaded_file_name: Optional[str] = None
+        self.uploaded_file_names: list[str] = []
         self.pagination_main = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
         self.pagination_group = {'rowsPerPage': 10, 'page': 1, 'sortBy': 'id', 'descending': False}
 
 
         # Estado
-        self.uploaded_file_content: Optional[bytes] = None
+        self.uploaded_file_contents: list[bytes] = []
         self.processed_data: Optional[pd.DataFrame] = None
         self.grouped_data: Optional[pd.DataFrame] = pd.DataFrame()
         self.backend_selected: Optional[str] = None  
@@ -45,14 +45,32 @@ class HTMLConverterUI:
         self.clear_table_button = None
         self.download_button = None
         self.selected_group_rows = []
+        
 
 
     async def handle_upload(self, e):
+        """
+        Maneja la carga de archivos.
+        - Para backends no-Dixell: reemplaza el archivo actual (solo 1).
+        - Para Dixell: permite múltiples archivos (append).
+        """
         try:
             logger.info(f"Iniciando carga de archivo: {e.file.name}")
-            self.uploaded_file_content = await e.file.read()
-            logger.info(f"Archivo leído correctamente: {len(self.uploaded_file_content)} bytes")
+            file_bytes = await e.file.read()
+            filename = e.file.name
 
+            # Si el backend es Dixell (multiples PDFs) permitimos append.
+            if self.backend_selected == "Dixell":
+                self.uploaded_file_contents.append(file_bytes)
+                self.uploaded_file_names.append(filename)
+            else:
+                # Para otros backends, sobrescribimos el archivo (comportamiento 'single file')
+                self.uploaded_file_contents = [file_bytes]
+                self.uploaded_file_names = [filename]
+
+            logger.info(f"Archivo leído correctamente: {len(file_bytes)} bytes")
+
+            # UI state
             if self.process_button:
                 self.process_button.enable()
             if self.download_button:
@@ -62,51 +80,51 @@ class HTMLConverterUI:
             if self.group_table_card:
                 self.group_table_card.visible = False
 
-            self.uploaded_file_name = e.file.name  # Guarda el nombre del archivo
-
-
-            ui.notify(f"Archivo '{e.file.name}' cargado correctamente.", type='positive')
+            ui.notify(f"Archivo '{filename}' cargado correctamente.", type='positive')
 
         except Exception as ex:
             logger.error(f"Error al cargar archivo: {ex}", exc_info=True)
             ui.notify(f"Error al cargar archivo: {ex}", type='negative')
 
     def process_file(self, e):
-        if self.uploaded_file_content is None:
+        """Procesa el archivo cargado con el backend seleccionado."""
+        if not self.uploaded_file_contents:
             ui.notify("No hay archivo para procesar.", type='negative')
             return
 
-        # --- 🔄 Reiniciar tablas y datos previos ---
+        # Reiniciar tablas y datos previos
         self.processed_data = None
         self.grouped_data = pd.DataFrame()
         self.selected_rows = []
         self.selected_group_rows = []
         self.reset_search_input(e)
         self.reset_group_search_input(e)
-        
-        # Limpiar contenido visual de tablas
+
         if self.table:
             self.table.rows = []
             self.table.update()
         if self.group_table:
             self.group_table.rows = []
             self.group_table.update()
-
-        # Ocultar las tarjetas mientras no haya datos
         if self.table_card:
             self.table_card.visible = False
         if self.group_table_card:
             self.group_table_card.visible = False
-
-        # Deshabilitar botones dependientes
         if self.download_button:
             self.download_button.disable()
 
-        # --- Procesar archivo normalmente ---
-        df = self.process_html_callback(self.uploaded_file_content)
+        # Llamar al backend correcto
+        if self.backend_selected == "Dixell":
+            df = self.process_html_callback(self.uploaded_file_contents)
+        else:
+            df = self.process_html_callback(self.uploaded_file_contents[-1])
 
         if df is not None and not df.empty:
             self.processed_data = df
+            self.display_table()
+            self.update_group_table()
+            if self.download_button:
+                self.download_button.enable()
 
             # --- Detectar filas ya clasificadas ---
             valid_groups1 = [
@@ -115,14 +133,10 @@ class HTMLConverterUI:
                 'SYSTEM'
             ]
 
-            valid_groups2 = [
-                'basic', 'primary'
-            ]
+            valid_groups2 = ['basic', 'primary']
 
             auto_grouped1 = df[df['system_category'].isin(valid_groups1)]
             auto_grouped2 = df[df['view'].isin(valid_groups2)]
-
-            # Combinar ambos sin duplicados
             combined_grouped = pd.concat([auto_grouped1, auto_grouped2]).drop_duplicates()
 
             if not combined_grouped.empty:
@@ -132,20 +146,39 @@ class HTMLConverterUI:
                     type='positive',
                     timeout=2.5
                 )
-                
-            if self.download_button:
-                self.download_button.enable()
 
             ui.notify(f"{len(df)} parámetros procesados.", type='positive')
-            self.display_table()  
-            self.update_group_table()  
-
+            self.display_table()
+            self.update_group_table()
         else:
             self.processed_data = None
             ui.notify("No se obtuvieron datos del procesamiento.", type='warning')
-
             if self.download_button:
                 self.download_button.disable()
+    
+    def remove_uploaded_files(self):
+        """Elimina todos los archivos subidos y resetea el estado."""
+        self.uploaded_file_contents = []
+        self.uploaded_file_names = []
+        self.processed_data = None
+        self.grouped_data = pd.DataFrame()
+        self.selected_rows = []
+        self.selected_group_rows = []
+        if self.table:
+            self.table.rows = []
+            self.table.update()
+        if self.group_table:
+            self.group_table.rows = []
+            self.group_table.update()
+        if self.table_card:
+            self.table_card.visible = False
+        if self.group_table_card:
+            self.group_table_card.visible = False
+        if self.download_button:
+            self.download_button.disable()
+        if self.process_button:
+            self.process_button.disable()
+        ui.notify("Archivos eliminados.", type='info')
 
 
     def display_table(self):
@@ -208,9 +241,9 @@ class HTMLConverterUI:
                 file_name = 'parametros_convertidos.xlsx'
 
             if 'category' in df_to_export.columns:
-                df_to_export['category'] = np.nan
+               df_to_export['category'] = np.nan
             
-            if 'category' in df_to_export.columns:
+            if 'id' in df_to_export.columns:
                 df_to_export['id']=np.nan
 
             with NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
@@ -260,7 +293,7 @@ class HTMLConverterUI:
                 ui.label('0. Seleccionar Backend').classes('text-lg font-bold')
                 ui.separator()
                 self.backend_selector = ui.select(
-                    options=['Keyter', 'iPro', 'Cefa'],
+                    options=['Keyter', 'iPro', 'Cefa', 'Dixell'],
                     label='Selecciona el backend',
                     on_change=self.handle_backend_selection
                 ).props('outlined dense clearable').classes('w-64')
@@ -310,6 +343,8 @@ class HTMLConverterUI:
             file_accept = '.xlsx'
         elif backend == 'Cefa':
             file_accept = '.pdf'
+        elif backend == 'Dixell':
+            file_accept = '.pdf'
         elif backend == 'General':
             file_accept = '.xlsx,.xls,.xlsm,.html,.htm,.pdf'
         else:
@@ -329,7 +364,8 @@ class HTMLConverterUI:
     def _reset_ui_state(self):
         """Reinicia el estado de la interfaz al cambiar de backend."""
         # Limpiar archivo subido
-        self.uploaded_file_content = None
+        self.uploaded_file_contents = []
+        self.uploaded_file_names = []
 
         # Limpiar DataFrames
         self.processed_data = None
@@ -366,26 +402,42 @@ class HTMLConverterUI:
             self.upload_container.clear()  # Limpia el contenedor anterior
 
         with self.upload_container:
+            # Configuración base del componente
+            max_files = 1
+            accept_types = ""
 
+            # 🔹 Configurar según backend seleccionado
+            if self.backend_selected == "Keyter":
+                accept_types = ".xls,.xlsx,.xlsm,.html,.htm"
+            elif self.backend_selected == "iPro":
+                accept_types = ".xlsx"
+            elif self.backend_selected == "Cefa":
+                accept_types = ".pdf"
+            elif self.backend_selected == "Dixell":
+                accept_types = ".pdf"
+                max_files = 2  
+            elif self.backend_selected == "General":
+                accept_types = ".xls,.xlsx,.xlsm,.html,.htm,.pdf"
+            else:
+                accept_types = ""
+                max_files = 0
+
+            # 🔹 Crear componente de subida
             self.upload_component = ui.upload(
                 label="Seleccionar o arrastrar archivo aquí",
                 auto_upload=True,
-                max_files=1,
-            ).props('flat bordered square no-wrap').classes(
-                'w-96 h-32 justify-left items-left text-center bg-gray-50 hover:bg-gray-100 rounded-2xl border border-gray-300'
+                max_files=max_files,
+            ).props(f'flat bordered square no-wrap accept="{accept_types}"').classes(
+                'w-96 h-32 justify-left items-left text-center bg-gray-50 hover:bg-gray-100 '
+                'rounded-2xl border border-gray-300'
             )
 
+            # Asociar el manejador de subida
             self.upload_component.on_upload(self.handle_upload)
+            self.upload_component.on('removed', lambda e: self.remove_uploaded_files())
 
-            if self.backend_selected == "Keyter":
-                self.upload_component.props('accept=".xls",".xlsx",".xlsm",".html",".htm"')
-            elif self.backend_selected == "iPro":
-                self.upload_component.props('accept=".xlsx"')
-            elif self.backend_selected == "Cefa":
-                self.upload_component.props('accept=".pdf"')
-            elif self.backend_selected == "General":
-                self.upload_component.props('accept=".xls",".xlsx",".xlsm",".html",".htm",".pdf"')
-            else:
+            # 🔹 Deshabilitar si el backend no tiene formatos válidos
+            if not accept_types:
                 self.upload_component.disable()
 
 
@@ -730,21 +782,35 @@ class HTMLConverterUI:
             )
 
             # --- Controles debajo de la tabla ---
-            with ui.row().classes('mt-4 items-center gap-4'):
+            with ui.row().classes('mt-4 items-center gap-4 justify-start'):
                 self.group_selector = ui.select(
                     options=[
                         'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
                         'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
                     ],
                     label='Asignar a grupo',
-                ).props('dense')
+                ).props('dense outlined').classes('w-64')
 
                 self.assign_button = ui.button(
                     'Asignar grupo',
-                    on_click=self.assign_group_to_selection
-                )
-        self.table.on('click', lambda e: logger.info("✅ Evento click detectado en tabla"))
+                    on_click=self.assign_group_to_selection,
+                    icon='check_circle'
+                ).props('color=positive outlined')
 
+                self.add_row_button = ui.button(
+                    'Agregar fila',
+                    on_click=self.add_new_row,
+                    icon='add'
+                ).props('color=primary outlined')
+
+            with ui.row().classes('mt-4 items-center gap-4 justify-start'):
+                self.download_map_button = ui.button(
+                    'Descargar mapa de variables',
+                    on_click=self.download_variable_map,
+                    icon='download'
+                ).props('color=secondary outlined')
+
+        self.table.on('click', lambda e: logger.info("✅ Evento click detectado en tabla"))
 
             
 
@@ -1443,3 +1509,144 @@ class HTMLConverterUI:
             import traceback
             logger.error(f"❌ Error en handle_field_change({field_name}):\n" + traceback.format_exc())
             ui.notify(f"Error actualizando {label or field_name}: {ex}", type='negative')
+
+    def add_new_row(self):
+        """Agrega una nueva fila al inicio de la tabla, la muestra inmediatamente y la clasifica si aplica."""
+        try:
+            import pandas as pd
+
+            # Crear DataFrame vacío si no existe
+            if self.processed_data is None or self.processed_data.empty:
+                self.processed_data = pd.DataFrame(columns=[
+                    'id', 'register', 'name', 'description', 'read', 'write', 'sampling',
+                    'minvalue', 'maxvalue', 'unit', 'view', 'system_category',
+                ])
+
+            # Generar un nuevo ID único
+            existing_ids = self.processed_data['id'].astype(str).tolist()
+            next_id = max([int(x) for x in existing_ids if x.isdigit()] + [0]) + 1
+
+            # Crear nueva fila con valores por defecto
+            new_row = {
+                'id': next_id,
+                'register': 0,
+                'name': f'Nuevo Parámetro {next_id}',
+                'description': 'Descripción...',
+                'read': 0,
+                'write': 0,
+                'sampling': 0,
+                'minvalue': 0,
+                'maxvalue': 0,
+                'unit': '',
+                'view': 'basic',
+                'system_category': self.group_selector.value or 'DEFAULT',
+            }
+
+            # --- Insertar la fila al inicio del DataFrame principal ---
+            new_df = pd.DataFrame([new_row])
+            self.processed_data = pd.concat([new_df, self.processed_data], ignore_index=True)
+
+            # --- Insertar también en la tabla visual (al inicio) ---
+            current_rows = self.table.rows or []
+            updated_rows = [new_row] + current_rows
+            self.table.rows = updated_rows
+
+            # --- Mostrar la primera página para asegurar visibilidad inmediata ---
+            self.pagination_main['page'] = 1
+            self.table.update()
+
+            ui.notify(f"✅ Fila '{new_row['name']}' agregada en la parte superior.", color='positive', position='top')
+
+            # --- Si pertenece a un grupo válido, agregarla también a la tabla de grupos ---
+            valid_groups = [
+                'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
+                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT',
+                'STATUS', 'SYSTEM'
+            ]
+
+            if new_row['system_category'] in valid_groups:
+                if self.grouped_data is None or self.grouped_data.empty:
+                    self.grouped_data = new_df
+                else:
+                    all_cols = list(self.grouped_data.columns)
+                    new_df = new_df.reindex(columns=all_cols, fill_value=np.nan)
+                    self.grouped_data = pd.concat([new_df, self.grouped_data], ignore_index=True)
+
+                self.update_group_table()
+                ui.notify(f"🟩 Fila '{new_row['name']}' clasificada automáticamente en {new_row['system_category']}.", color='positive')
+            else:
+                ui.notify(f"ℹ️ Fila agregada sin grupo asignado (categoría: {new_row['system_category']}).", color='info')
+
+            # --- Refrescar tabla principal y de grupos ---
+            self.display_table()
+            self.update_group_table()
+
+        except Exception as ex:
+            import traceback
+            logger.error(f"❌ Error al agregar nueva fila:\n" + traceback.format_exc())
+            ui.notify(f"Error al agregar nueva fila: {ex}", type='negative')
+
+    def download_variable_map(self):
+        """Genera y descarga un Excel con el mapa de variables (columnas seleccionables por el usuario)."""
+        try:
+            # Determinar fuente de datos
+            df_source = None
+            if self.grouped_data is not None and not self.grouped_data.empty:
+                df_source = self.grouped_data
+            elif self.processed_data is not None and not self.processed_data.empty:
+                df_source = self.processed_data
+            else:
+                ui.notify("⚠️ No hay datos para generar el mapa de variables.", type='warning')
+                return
+
+            # Columnas disponibles
+            available_cols = list(df_source.columns)
+
+            # Selector de columnas
+            selected_columns = ui.select(
+                options=available_cols,
+                value=[
+                ],  
+                multiple=True,
+                label="Selecciona las columnas a exportar",
+                with_input=True,
+                clearable=True
+            )
+
+            async def confirmar_exportacion():
+                cols = selected_columns.value
+                if not cols:
+                    ui.notify("⚠️ Debes seleccionar al menos una columna para exportar.", type='warning')
+                    return
+
+                missing = [c for c in cols if c not in df_source.columns]
+                if missing:
+                    ui.notify(f"⚠️ Columnas no encontradas en los datos: {', '.join(missing)}", type='warning')
+                    return
+
+                df_export = df_source[cols].copy().replace({None: '', pd.NA: ''})
+
+                # Crear archivo temporal Excel
+                with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                    with pd.ExcelWriter(tmp.name, engine="openpyxl") as writer:
+                        df_export.to_excel(writer, sheet_name="Mapa de Variables", index=False)
+                    tmp.flush()
+                    file_path = tmp.name
+
+                ui.download(file_path, filename="mapa_de_variables.xlsx")
+                ui.notify(f"📗 Descarga iniciada con {len(cols)} columnas seleccionadas.", type='info')
+
+                # Limpieza del archivo temporal
+                async def cleanup_file(path):
+                    await asyncio.sleep(60)
+                    if os.path.exists(path):
+                        os.remove(path)
+
+                ui.timer(1.0, lambda: asyncio.create_task(cleanup_file(file_path)), once=True)
+
+            ui.button("Descargar Excel", on_click=confirmar_exportacion, color="green")
+
+        except Exception as ex:
+            import traceback
+            logger.error(f"❌ Error al generar mapa de variables:\n{traceback.format_exc()}")
+            ui.notify(f"Error al generar mapa de variables: {ex}", type='negative')
