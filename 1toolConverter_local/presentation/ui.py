@@ -203,7 +203,7 @@ class HTMLConverterUI:
             ] = df_display['id'].astype(str).map(category_map)
 
 
-        cols = ["id", "estado", "register", "name", "description", "system_category","category",
+        cols = ["id", "estado", "register", "name", "description", "system_category",
                 "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
@@ -803,6 +803,7 @@ class HTMLConverterUI:
                     icon='add'
                 ).props('color=primary outlined')
 
+            with ui.row().classes('mt-4 items-center gap-4 justify-start'):
                 self.download_map_button = ui.button(
                     'Descargar mapa de variables',
                     on_click=self.download_variable_map,
@@ -1089,7 +1090,7 @@ class HTMLConverterUI:
             return
 
         if self.grouped_data is not None and not self.grouped_data.empty:
-            cols = ["id", "register", "name", "description", "system_category", "category",
+            cols = ["id", "register", "name", "description", "system_category",
                 "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
 
             self.group_table.columns = [
@@ -1518,7 +1519,7 @@ class HTMLConverterUI:
             if self.processed_data is None or self.processed_data.empty:
                 self.processed_data = pd.DataFrame(columns=[
                     'id', 'register', 'name', 'description', 'read', 'write', 'sampling',
-                    'minvalue', 'maxvalue', 'unit', 'view', 'system_category', "category",
+                    'minvalue', 'maxvalue', 'unit', 'view', 'system_category',
                 ])
 
             # Generar un nuevo ID único
@@ -1586,13 +1587,8 @@ class HTMLConverterUI:
             ui.notify(f"Error al agregar nueva fila: {ex}", type='negative')
 
     def download_variable_map(self):
-        """Genera y descarga un Excel con el mapa de variables (solo columnas seleccionadas)."""
+        """Genera y descarga un Excel con el mapa de variables (columnas seleccionables por el usuario)."""
         try:
-            import pandas as pd
-            from tempfile import NamedTemporaryFile
-            import os
-            import asyncio
-
             # Determinar fuente de datos
             df_source = None
             if self.grouped_data is not None and not self.grouped_data.empty:
@@ -1603,34 +1599,52 @@ class HTMLConverterUI:
                 ui.notify("⚠️ No hay datos para generar el mapa de variables.", type='warning')
                 return
 
-            # Columnas que se exportarán
-            selected_cols = ["register", "name", "minvalue", "maxvalue", "unit", "read", "write", "category",]
+            # Columnas disponibles
+            available_cols = list(df_source.columns)
 
-            # Validar que las columnas existan
-            missing = [c for c in selected_cols if c not in df_source.columns]
-            if missing:
-                ui.notify(f"⚠️ Faltan columnas en los datos: {', '.join(missing)}", type='warning')
-                return
+            # Selector de columnas
+            selected_columns = ui.select(
+                options=available_cols,
+                value=[
+                ],  
+                multiple=True,
+                label="Selecciona las columnas a exportar",
+                with_input=True,
+                clearable=True
+            )
 
-            df_export = df_source[selected_cols].copy().replace({None: '', pd.NA: ''})
+            async def confirmar_exportacion():
+                cols = selected_columns.value
+                if not cols:
+                    ui.notify("⚠️ Debes seleccionar al menos una columna para exportar.", type='warning')
+                    return
 
-            # Crear archivo temporal Excel
-            with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-                with pd.ExcelWriter(tmp.name, engine="openpyxl") as writer:
-                    df_export.to_excel(writer, sheet_name="Mapa de Variables", index=False)
-                tmp.flush()
-                file_path = tmp.name
+                missing = [c for c in cols if c not in df_source.columns]
+                if missing:
+                    ui.notify(f"⚠️ Columnas no encontradas en los datos: {', '.join(missing)}", type='warning')
+                    return
 
-            ui.download(file_path, filename="mapa_de_variables.xlsx")
-            ui.notify("📗 Descarga iniciada: mapa_de_variables.xlsx", type='info')
+                df_export = df_source[cols].copy().replace({None: '', pd.NA: ''})
 
-            # Limpieza del archivo temporal
-            async def cleanup_file(path):
-                await asyncio.sleep(60)
-                if os.path.exists(path):
-                    os.remove(path)
+                # Crear archivo temporal Excel
+                with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                    with pd.ExcelWriter(tmp.name, engine="openpyxl") as writer:
+                        df_export.to_excel(writer, sheet_name="Mapa de Variables", index=False)
+                    tmp.flush()
+                    file_path = tmp.name
 
-            ui.timer(1.0, lambda: asyncio.create_task(cleanup_file(file_path)), once=True)
+                ui.download(file_path, filename="mapa_de_variables.xlsx")
+                ui.notify(f"📗 Descarga iniciada con {len(cols)} columnas seleccionadas.", type='info')
+
+                # Limpieza del archivo temporal
+                async def cleanup_file(path):
+                    await asyncio.sleep(60)
+                    if os.path.exists(path):
+                        os.remove(path)
+
+                ui.timer(1.0, lambda: asyncio.create_task(cleanup_file(file_path)), once=True)
+
+            ui.button("Descargar Excel", on_click=confirmar_exportacion, color="green")
 
         except Exception as ex:
             import traceback

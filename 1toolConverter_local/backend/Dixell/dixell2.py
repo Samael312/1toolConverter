@@ -98,13 +98,13 @@ COLUMN_MAPPING2 = {
 DEFAULT_VALUES = {
     "system_category": "DEFAULT",
     "description": "",
-    "view": "basic",
+    "view": "simple",
     "unit": "",
     "read": 0,
     "write": 0,
-    "sampling": 0,
     "minvalue": 0,
     "maxvalue": 0,
+    "sampling": 0,
     "addition": 0,
     "mask": 0,
     "general_icon": "",
@@ -337,12 +337,12 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         mask = rw & system_type.isin(['SET_POINT'])
         if mask.any():
             df.loc[mask, 'read'] = 3
-            df.loc[mask, 'write'] = 10
+            df.loc[mask, 'write'] = 16
 
         mask = rw & system_type.isin(['CONFIG_PARAMETER'])
         if mask.any():
             df.loc[mask, 'read'] = 3
-            df.loc[mask, 'write'] = 10
+            df.loc[mask, 'write'] = 16
 
         mask = rw & system_type.isin(['DIGITAL_OUTPUT'])
         if mask.any():
@@ -436,6 +436,102 @@ def _apply_unit_rules(df: pd.DataFrame) -> pd.DataFrame:
     df['unit'] = df['unit'].map(unit).fillna(df['unit'].astype(str).fillna(''))
     return df
 
+def clean_special_characters(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Limpia caracteres especiales de columnas de texto como 'description', 'name', y 'category'.
+    Mantiene solo letras, números y signos comunes (. , ; : _ - / % °C).
+    Elimina acentos, emojis y caracteres no imprimibles.
+    """
+    import re
+    import unicodedata
+
+    def limpiar_texto(texto):
+        if not isinstance(texto, str):
+            return ""
+        texto = unicodedata.normalize("NFKD", texto)
+        texto = texto.encode("ascii", "ignore").decode("ascii")  # quita tildes y acentos
+        texto = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/%°C]", "", texto)  # permite solo caracteres válidos
+        texto = re.sub(r"\s+", " ", texto).strip()  # limpia espacios extra
+        return texto
+
+    columnas_a_limpiar = ["description"]
+
+    for col in columnas_a_limpiar:
+        if col in df.columns:
+            df[col] = df[col].astype(str).apply(limpiar_texto)
+
+    return df
+
+def clean_text_fields(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Limpia caracteres especiales, acentos y saltos de línea de las columnas de texto del DataFrame.
+    Aplica la limpieza a columnas comunes: 'description', 'name', 'category', 'system_category', 'unit'.
+    """
+    import re
+    import unicodedata
+
+    def limpiar_texto(texto: str) -> str:
+        if not isinstance(texto, str):
+            return ""
+        # Sustituir saltos de línea, retornos de carro y tabulaciones por un espacio
+        texto = texto.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+        # Normalizar (elimina tildes y acentos)
+        texto = unicodedata.normalize("NFKD", texto)
+        texto = texto.encode("ascii", "ignore").decode("ascii")
+        # Eliminar caracteres no permitidos
+        texto = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/%°C]", "", texto)
+        # Reducir espacios múltiples y limpiar extremos
+        texto = re.sub(r"\s+", " ", texto).strip()
+        return texto
+
+    columnas_a_limpiar = ["description", "name"]
+
+    for col in columnas_a_limpiar:
+        if col in df.columns:
+            df[col] = df[col].astype(str).apply(limpiar_texto)
+
+    return df
+
+def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aplica reglas automáticas a minvalue y maxvalue solo si ambos están vacíos.
+    No sobrescribe valores existentes.
+    """
+    # Normaliza los tipos
+    for col in ["minvalue", "maxvalue"]:
+        if col not in df.columns:
+            df[col] = np.nan
+        df[col] = df[col].replace(["", " ", None], np.nan)
+
+    # --- 0️⃣ Validación general ---
+    if "system_category" in df.columns:
+        system_type = df["system_category"].astype(str).str.upper().str.strip()
+
+        mask_digital = system_type.isin(["DIGITAL_OUTPUT","DIGITAL_INPUT","STATUS", "ALARM"])
+        mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
+        df.loc[mask_digital & mask_empty, ["minvalue", "maxvalue"]] = [0, 1]
+
+         # --- 3️⃣ Detectar y marcar ANALOG_OUTPUT ---
+        mask_analog_output = system_type.isin(["ANALOG_OUTPUT", "ANALOG_INPUT"])
+        mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
+        df.loc[mask_analog_output & mask_empty, ["minvalue", "maxvalue"]] = [-270, 270]
+
+    # --- 4️⃣ Detectar y marcar CONFIG_PARAMETER ---
+    mask_pa = df["system_category"].astype(str).str.upper().eq("CONFIG_PARAMETER")
+    mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
+    df.loc[mask_pa & mask_empty, ["minvalue", "maxvalue"]] = [0, 100]
+
+    # --- 5️⃣ Detectar y marcar set_point ---
+    mask_sp = df["system_category"].astype(str).str.upper().eq("SET_POINT")
+    mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
+    df.loc[(mask_sp | mask_empty) & mask_empty, ["minvalue", "maxvalue"]] = [0, 9999]
+
+    # --- 6 Detectar y marcar COMMAND ---
+    mask_co = df["system_category"].astype(str).str.upper().eq("COMMAND")
+    mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
+    df.loc[mask_co & mask_empty, ["minvalue", "maxvalue"]] = [0, 100]
+
+    return df
 # ====================================================
 # Función principal (robusta)
 # ====================================================
@@ -746,6 +842,10 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                     new_names.append(n_str)
 
             df_final['name'] = new_names
+
+            df_final = clean_special_characters(df_final)
+            df_final = clean_text_fields(df_final)
+            df_final = _apply_range_rules(df_final)
 
             logger.info("\n==== df_final - 6====")
             logger.info(f"Columnas detectadas: {list(df_final.columns)}")
