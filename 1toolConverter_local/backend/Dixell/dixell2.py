@@ -30,7 +30,7 @@ ENCABEZADOS_EQUIVALENTES = {
     "GENERAL RULES": ["GENERAL RULES", "GENERAL RULES:" ],
     "COMUNICATION INFO": ["COMUNICATION INFO", "COMMUNICATION INFO"],
     "DEVICE ID": ["DEVICE ID"],
-    "ANALOG INPUT": ["ANALOG INPUT", "ANALOG"],
+    "ANALOG INPUT": ["ANALOG INPUT", "ANALOG", "ANALOG INPUTS", "INPUT ANALOG", "INPUTS ANALOG"],
     "SET POINT": ["SET POINT", "SETPOINT", "SP"],
     "Device Status": ["DEVICE STATUS", "STATUS", "Device Status ", "Device Status"],
     "DIGITAL INPUT": ["DIGITAL INPUT", "DI"],
@@ -75,7 +75,7 @@ COLUMNAS_VALIDAS2 = {
 
 
 COLUMN_MAPPING1 = {
-    "Name": "name",
+    "Name": "description",
     "Unit": "unit",
     "Read Register": "register",
     "Write Register": "register",
@@ -295,6 +295,10 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[mask_di, 'system_category'] = 'DIGITAL_INPUT'
     logger.info(f"{mask_di.sum()} filas marcadas como DIGITAL_INPUT")
 
+    # --- 4️⃣ Detectar y marcar CONFIG_PARAMETER ---
+    mask_alert = df["system_category"].astype(str).str.upper().eq("ALARM")
+    df.loc[mask_alert, ["alarm"]] = '{"severity":"high"}'
+
     return df
 
 def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
@@ -331,7 +335,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[only_read & system_type.isin(['ANALOG_INPUT', 'ANALOG_OUTPUT', 'SYSTEM']), 'read'] = 3
         df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 1
         df.loc[only_read & system_type.isin(['STATUS']), 'read'] = 1
-        df.loc[only_read & system_type.isin(['COMMAND']), 'write'] = 5
+        df.loc[only_write & system_type.isin(['COMMAND']), 'write'] = 5
         df.loc[only_read & system_type.isin(['SYSTEM']), 'read'] = 3
 
         mask = rw & system_type.isin(['SET_POINT'])
@@ -392,9 +396,9 @@ def _apply_view_rules(df: pd.DataFrame) -> pd.DataFrame:
         'DEFAULT': "simple",
         'COMMAND': "simple",
         'DIGITAL_INPUT': "simple",
-        'DIGITAL_OUTPUT': "simple",
-        'ANALOG_INPUT': "simple",
-        'ANALOG_OUTPUT': "simple",
+        'DIGITAL_OUTPUT': "basic",
+        'ANALOG_INPUT': "basic",
+        'ANALOG_OUTPUT': "basic",
         'SERIAL_OUTPUT': "simple",
         'STATUS': "basic",
         'CONFIG_PARAMETER': "simple",
@@ -784,12 +788,19 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                 df_final["register"] = df_final["register"].apply(hex_to_dec).astype(str)
 
             if "value" in df_final.columns:
-                df_final["value"] = df_final["value"].apply(hex_to_dec).astype(str)
+
+                # Convertir Hex a decimal primero
+                df_final["value"] = df_final["value"].apply(hex_to_dec)
+
+                # Aplicar la regla FF00 → 1, 0000 → 0
                 df_final["value"] = df_final["value"].apply(
-                    lambda x: x if re.fullmatch(r"^-?\d+(\.\d+)?$", x.strip()) else "0"
-                )
+                    lambda v: 1 if v == 65280 else
+                            0 if v == 0 else
+                            v
+                ).astype(str)
+
             else:
-                logger.warning("⚠️ No se encontró la columna 'register' tras mapeo.")
+                logger.warning("⚠️ No se encontró la columna 'value'.")
 
             # Procesar reglas
             df_final = _process_specific_columns(df_final)
@@ -818,9 +829,32 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
 
             # Asignar 'id' como número de fila empezando desde 1
             df_final['id'] = range(1, len(df_final) + 1)
-            # Rellenar description vacía con 'Add'
+            df_final['name'] = df_final['name'].fillna("").astype(str)
             df_final['description'] = df_final['description'].fillna("").astype(str)
-            df_final['description'] = df_final['description'].apply(lambda x: "Add" if x.strip() == "" else x[:60])
+
+            def generar_nombre(row):
+                try:
+                    name = str(row.get('name', '')).strip()
+                    description = str(row.get('description', '')).strip()
+
+                    # Si name está vacío -> usar description
+                    if name == "":
+                        if description == "":
+                            return "Sin_descripcion"
+
+                        # resumir (primeras 6 palabras máx)
+                        resumen = "_".join(description.split()[:6])
+                        return resumen[:60] if resumen else "Sin_descripcion"
+
+                    # Si name NO está vacío -> truncar
+                    return name[:60]
+
+                except Exception:
+                    return "Error_nombre"
+
+            df_final['name'] = df_final.apply(generar_nombre, axis=1).astype(str)
+
+
             # Rellenar toda la columna 'type' con "modbus"
             df_final['type'] = "modbus"
             

@@ -204,7 +204,7 @@ class HTMLConverterUI:
 
 
         cols = ["id", "estado", "register", "name", "description", "system_category",
-                "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
+                "read", "write", "sampling", "minvalue", "maxvalue", "unit","view"]
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
 
@@ -1337,6 +1337,9 @@ class HTMLConverterUI:
             mapping = {
                 "ALARM": 30,
                 "SET_POINT": 300,
+                "ANALOG_INPUT": 60,
+                "ANALOG_OUTPUT":60,
+                "DIGITAL_INPUT":60,
                 "DEFAULT": 0,
                 "COMMAND": 0,
                 "STATUS": 60,
