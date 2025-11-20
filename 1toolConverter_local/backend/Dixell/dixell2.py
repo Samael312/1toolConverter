@@ -8,6 +8,8 @@ import re
 import numpy as np
 from openpyxl import load_workbook
 from io import BytesIO
+import json
+from deep_translator import GoogleTranslator
 
 # ====================================================
 # Configuración de logging
@@ -110,8 +112,8 @@ DEFAULT_VALUES = {
     "general_icon": "",
     "alarm": '{"severity":"none"}',
     "metadata": "[]",
-    "l10n": '{"_type":"l10n","default_lang":"en_US","translations":{"en_US":{"name":null,"_type":"languages","description":null}}}',
     "tags": "[]",
+    "l10n": '{"_type":"l10n","default_lang":"en_US","translations":{"en_US":{"name":null,"_type":"languages","description":null}}}',
     "type": "modbus",
     "parameter_write_byte_position": 0,
     "mqtt": "",
@@ -250,6 +252,89 @@ def map_data_type(df, col="length"):
     df[col] = df[col].astype(str).str.lower().map(mapping).fillna("16bit")
     return df
 
+from deep_translator import GoogleTranslator
+import json
+import pandas as pd
+
+
+def _apply_localization(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Traduce df['description'] a varios idiomas y crea el campo l10n multilingüe.
+    """
+
+    # Idiomas que quieres traducir
+    lang_targets = {
+        "description_es": "es",
+        "description_de": "de",
+        "description_fr": "fr",
+        "description_it": "it",
+    }
+
+    # 📌 1. Generar columnas nuevas traducidas
+    for new_col, lang_code in lang_targets.items():
+        if "description" in df.columns:
+            translated = []
+            for text in df["description"]:
+                if pd.isna(text) or str(text).strip() == "":
+                    translated.append(None)
+                    continue
+
+                try:
+                    translated_text = GoogleTranslator(source="en", target=lang_code).translate(text)
+                except Exception:
+                    translated_text = None  # Si falla el traductor, mantenemos None
+
+                translated.append(translated_text)
+
+            df[new_col] = translated
+
+    # 📌 2. Diccionario de campos a mapear a l10n
+    langs = {
+        "description_es": "en_ES",
+        "description": "es_US",
+        "description_de": "de_DE",
+        "description_fr": "fr_FR",
+        "description_it": "it_IT",
+    }
+
+    # 📌 3. Construir el campo l10n
+    def build_l10n(row):
+        translations = {}
+
+        for col, lang in langs.items():
+            if col in row and pd.notna(row[col]):
+                desc = str(row[col]).strip()[:60]   # cortar a 60 chars
+                translations[lang] = {
+                    "name": None,
+                    "_type": "languages",
+                    "category": None,
+                    "description": desc,
+                }
+
+        # Si no hay traducciones, dejar es_ES vacío
+        if not translations:
+            translations = {
+                "es_ES": {
+                    "name": None,
+                    "_type": "languages",
+                    "category": None,
+                    "description": None,
+                }
+            }
+
+        l10n_dict = {
+            "_type": "l10n",
+            "default_lang": "es_ES",
+            "translations": translations,
+        }
+
+        return json.dumps(l10n_dict, ensure_ascii=False, separators=(",", ":"))
+
+    df["l10n"] = df.apply(build_l10n, axis=1)
+
+    return df
+
+
 def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     # defensiva: si no existe 'name' o 'system_category', crearlas
     df = df.copy()
@@ -299,7 +384,12 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     mask_alert = df["system_category"].astype(str).str.upper().eq("ALARM")
     df.loc[mask_alert, ["alarm"]] = '{"severity":"high"}'
 
+    #if 'description' in df.columns:
+    #            df['description'] = df['description'].astype(str).str.slice(0, 60)
+
+
     return df
+
 
 def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
     # defensiva: asegurar columnas
@@ -811,6 +901,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             df_final = _apply_unit_rules(df_final)
             df_final = extract_min_max_from_type_safe(df_final)
             df_final = map_data_type(df_final)
+            #df_final = _apply_localization(df_final)
   
 
             logger.info("\n==== df_final - 4====")
@@ -880,6 +971,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             df_final = clean_special_characters(df_final)
             df_final = clean_text_fields(df_final)
             df_final = _apply_range_rules(df_final)
+            df_final["value"] = df_final["value"].replace("", 0)
 
             logger.info("\n==== df_final - 6====")
             logger.info(f"Columnas detectadas: {list(df_final.columns)}")
