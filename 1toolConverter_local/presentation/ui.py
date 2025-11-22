@@ -29,6 +29,9 @@ class HTMLConverterUI:
         self.processed_data: Optional[pd.DataFrame] = None
         self.grouped_data: Optional[pd.DataFrame] = pd.DataFrame()
         self.backend_selected: Optional[str] = None  
+        self.error_filter_active = False
+        
+
 
         # Componentes UI
         self.backend_selector = None   
@@ -155,6 +158,31 @@ class HTMLConverterUI:
             ui.notify("No se obtuvieron datos del procesamiento.", type='warning')
             if self.download_button:
                 self.download_button.disable()
+        
+        # Convertir DataFrame a lista de diccionarios
+            rows = df.to_dict(orient='records')
+
+            # Cargar filas en la tabla
+            self.load_rows(rows)
+
+            # Marcar errores
+            for row in self.table.rows:
+                descripcion = row.get("description", "")
+                resultado = self.validate_description_e(descripcion)
+                row["error_flag"] = "Error" if resultado is not True else ""
+
+            # Actualizar contador de errores
+            error_count = sum(1 for r in self.table.rows if r.get("error_flag") == "Error")
+            self.error_label.set_text(f"Errores: {error_count}")
+            self.filter_button.set_text(f"Errores: {error_count}")
+
+            # Refrescar tabla
+            self.table.update()
+    
+    def load_rows(self, rows):
+        for r in rows:
+            r["error_flag"] = ""
+        self.table.rows = rows
     
     def remove_uploaded_files(self):
         """Elimina todos los archivos subidos y resetea el estado."""
@@ -179,6 +207,14 @@ class HTMLConverterUI:
         if self.process_button:
             self.process_button.disable()
         ui.notify("Archivos eliminados.", type='info')
+    
+    def mark_error_flags(self, rows):
+        """Marca error_flag = 1 para filas con descripción inválida."""
+        for row in rows:
+                descripcion = row.get("description", "")
+                resultado = self.validate_description_e(descripcion)
+                row["error_flag"] = 0 if resultado is True else 1
+        return rows
 
 
     def display_table(self):
@@ -204,9 +240,14 @@ class HTMLConverterUI:
 
 
         cols = ["id", "estado", "register", "name", "description", "system_category",
-                "read", "write", "sampling", "minvalue", "maxvalue", "unit","view"]
+                "read", "write", "sampling", "minvalue", "maxvalue", "unit","view", "error_flag"]
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
+
+        # 🔹 Marcar errores automáticamente al cargar
+        rows = self.mark_error_flags(rows)
+        self.update_error_counter()
+
 
         for row in rows:
             row['_isGrouped'] = bool(row.get('system_category'))
@@ -463,6 +504,7 @@ class HTMLConverterUI:
                     icon='play_for_work'
                 )
                 self.process_button.disable()
+
     
     def validate_description_e(self, texto):
         import re
@@ -476,11 +518,14 @@ class HTMLConverterUI:
 
         # 2. Validar longitud máxima absoluta
         if len(texto) > 150:
+            self.download_button.disable()
             return "Máximo 150 caracteres permitidos"
 
         # 3. Validar límite suave (lo que causa que el botón sea 'close' en tu lógica > 60)
         if len(texto) > 60:
+            self.download_button.disable()
             return "La descripcion supera el límite recomendado de 60 caracteres"
+
 
         return True
     
@@ -492,7 +537,7 @@ class HTMLConverterUI:
             ui.button('Cerrar', on_click=dialog_error.close)
 
         # Ahora SÍ obtienes props.row
-        row = e.args
+        row = e.args if isinstance(e.args, dict) else e.args[0]
 
         # row AHORA es el diccionario que Vue envió
         description = row.get('description', '')
@@ -502,8 +547,19 @@ class HTMLConverterUI:
         if resultado is not True:
             error_label.set_text(resultado)
             dialog_error.open()
-
     
+        
+    
+    def load_rows(self, rows):
+        # Inicializar la clave
+        for r in rows:
+            r["error_flag"] = ""
+
+        self.table.rows = rows
+
+        # 🔥 Aquí sí se puede validar porque ya hay filas cargadas
+        self.update_error_counter()
+
 
     def add_editable_slot(
         self,
@@ -567,6 +623,9 @@ class HTMLConverterUI:
 
         # --- Envolver el handler con validación ---
         def wrapped_handler(e, fn=field_name, lbl=label):
+            self.toggle_error_filter(e)
+            self.update_error_counter()
+        
             # Validar antes de procesar
             if validator:
                 args = getattr(e, 'args', e)
@@ -595,8 +654,10 @@ class HTMLConverterUI:
             self.table_card = table_card
             self.table_card.visible = False
 
-            cols = ["id", "register", "name", "description",
-                    "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view"]
+            cols = [
+            "id", "register", "name", "description", "read", "write",
+            "sampling", "minvalue", "maxvalue", "unit", "view", "error_flag"
+        ]
 
             # Selector de columna + campo de búsqueda
             with ui.row().classes('mt-2 mb-2 items-center gap-2'):
@@ -613,6 +674,12 @@ class HTMLConverterUI:
                     placeholder='Buscador...',
                     on_change=self.apply_search_filter
                 ).props('dense clearable outlined').classes('flex-1')
+                self.error_button = ui.button(
+                    "Errores: 0",
+                    on_click=self.toggle_error_filter
+                ).props("color=negative outlined")
+
+
 
             # --- Filtro por system_category ---
             with ui.row().classes('mt-2 mb-2 items-center gap-2'):
@@ -631,13 +698,18 @@ class HTMLConverterUI:
 
             # Tabla con paginación
             self.table = ui.table(
-                columns=[{'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True} for c in cols],
-                rows=[],
+                columns=[
+                    {'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True}
+                    for c in cols
+                ],
+                rows=[],  # ❗ Aquí debe ir la lista vacía
                 row_key='id',
                 selection='multiple',
                 pagination=self.pagination_main,
                 on_pagination_change=self.handle_main_pagination,
-            ).classes('w-full').style('transform: scale(0.9); transform-origin: top center;').props('flat bordered dense')
+            ).classes('w-full').style(
+                'transform: scale(0.9); transform-origin: top center;'
+            ).props('flat bordered dense')
 
             self.table.on('selection', self.handle_selection)
             self.table.on('openError', self.handle_error_click)
@@ -851,7 +923,55 @@ class HTMLConverterUI:
 
         self.table.on('click', lambda e: logger.info("✅ Evento click detectado en tabla"))
 
-            
+    def load_rows(self, rows):
+        for row in rows:
+            row["error_flag"] = ""  # Inicialmente
+            descripcion = row.get("description", "")
+            resultado = self.validate_description_e(descripcion)
+            if resultado is not True:
+                row["error_flag"] = "Error"
+        self.table.rows = rows
+        self.update_error_counter()
+        self.table.update()
+
+    def update_error_counter(self):
+        """Actualiza el botón de contador con el número real de errores."""
+        error_count = sum(r.get("error_flag", 0) for r in self.table.rows)
+        if error_count > 0:
+            self.download_button.disable()
+        else:
+            self.download_button.enable()
+        
+        if hasattr(self, "error_button"):
+            self.error_button.set_text(f"Errores: {error_count}")
+    
+    def toggle_error_filter(self, e):
+        """Activa/desactiva el filtro de errores."""
+        self.error_filter_active = not self.error_filter_active
+
+        if self.error_filter_active:
+            # 🔥 FILTRAR SOLO ERRORES
+            filtered = [r for r in self.table.rows if r.get("error_flag", 0) == 1]
+            self.table.rows = filtered
+
+            # Cambiar a rojo oscuro
+            self.error_button.props("color=positive")
+
+        else:
+            # 🔥 Restaurar todas las filas desde processed_data
+            df_display = self.processed_data.copy()
+            rows = df_display.replace({np.nan: ''}).to_dict('records')
+            rows = self.mark_error_flags(rows)
+
+            self.table.rows = rows
+
+            # Rojo normal
+            self.error_button.props("color=negative outlined")
+
+        self.update_error_counter()
+        self.table.update()
+
+
 
     def _create_group_table_section(self):
         with ui.card().classes('w-full max-w-6xl') as group_card:
@@ -1145,7 +1265,7 @@ class HTMLConverterUI:
     def handle_main_pagination(self, e):
         """Manejo de paginación para la tabla principal."""
         try:
-            # En NiceGUI 2.x, los datos de paginación vienen en e.value
+            
             if isinstance(e.value, dict):
                 self.pagination_main.update(e.value)
             logger.debug(f"Paginación principal actualizada: {self.pagination_main}")
@@ -1196,6 +1316,25 @@ class HTMLConverterUI:
         except Exception as ex:
             logger.exception(f"Error al aplicar filtro de búsqueda: {ex}")
             ui.notify(f"Error al aplicar filtro de búsqueda: {ex}", type='negative')
+    
+    def show_only_errors(self, e=None):
+        """Filtra la tabla para mostrar solo filas con error_flag = 1."""
+        if not self.table or not hasattr(self, "table"):
+            return
+
+        # Filtrar filas con error
+        error_rows = [row for row in self.table.rows if row.get("error_flag", 0) == 1]
+
+        # Si no hay errores, avisar
+        if not error_rows:
+            ui.notify("No hay filas con errores.", type="info")
+            return
+
+        # Mostrar solo esas filas
+        self.table.rows = error_rows
+        self.table.update()
+
+        ui.notify(f"Mostrando {len(error_rows)} filas con errores.", type="warning")
     
     def apply_category_filter(self, e):
         """Filtra la tabla principal según las categorías seleccionadas."""
@@ -1505,6 +1644,7 @@ class HTMLConverterUI:
         try:
             logger.info(f"🟢 [handle_field_change:{field_name}] Evento recibido.")
             logger.info(f"Contenido bruto del evento: {repr(e)}")
+            
 
             # --- Extraer fila del evento ---
             args = getattr(e, 'args', e)
@@ -1517,10 +1657,12 @@ class HTMLConverterUI:
                 return
 
             row_id = str(row.get('id'))
+            self.update_error_counter()
 
             try:
                 raw_value = row.get(field_name, '')
                 new_value = raw_value.strip() if isinstance(raw_value, str) else raw_value
+                self.update_error_counter()
             except Exception:
                 ui.notify("No hay cambios para realizar")
                 return
@@ -1530,6 +1672,7 @@ class HTMLConverterUI:
             # --- Actualizar processed_data ---
             if self.processed_data is not None and not self.processed_data.empty:
                 mask = self.processed_data['id'].astype(str) == row_id
+                self.update_error_counter()
                 if mask.any():
                     self.processed_data.loc[mask, field_name] = new_value
                     logger.info(f"✅ processed_data.{field_name} actualizado")
@@ -1537,17 +1680,20 @@ class HTMLConverterUI:
             # --- Actualizar grouped_data ---
             if self.grouped_data is not None and not self.grouped_data.empty:
                 mask = self.grouped_data['id'].astype(str) == row_id
+                self.update_error_counter()
                 if mask.any():
                     self.grouped_data.loc[mask, field_name] = new_value
                     logger.info(f"✅ grouped_data.{field_name} actualizado")
 
             # --- Actualizar visualmente la tabla ---
             if self.table and self.table.rows:
+                self.update_error_counter()
                 for r in self.table.rows:
                     if str(r.get('id')) == row_id:
                         r[field_name] = new_value
                         break
                 self.update_group_table()
+                self.update_error_counter()
                 self.display_table()
 
             ui.notify(f"{label} actualizado (ID={row_id})", type='positive', timeout=1.5)
