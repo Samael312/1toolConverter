@@ -463,13 +463,54 @@ class HTMLConverterUI:
                     icon='play_for_work'
                 )
                 self.process_button.disable()
+    
+    def validate_description_e(self, texto):
+        import re
+        if texto is None:
+            return "El texto está vacío"
+
+        # 1. Limpiar caracteres no válidos y comparar
+        cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/%°C]", "", texto)
+        if cleaned != texto:
+            return "Caracteres no permitidos encontrados"
+
+        # 2. Validar longitud máxima absoluta
+        if len(texto) > 150:
+            return "Máximo 150 caracteres permitidos"
+
+        # 3. Validar límite suave (lo que causa que el botón sea 'close' en tu lógica > 60)
+        if len(texto) > 60:
+            return "La descripcion supera el límite recomendado de 60 caracteres"
+
+        return True
+    
+    def handle_error_click(self, e):
+        error_label = None
+
+        with ui.dialog() as dialog_error, ui.card():
+            error_label = ui.label('Información del error')
+            ui.button('Cerrar', on_click=dialog_error.close)
+
+        # Ahora SÍ obtienes props.row
+        row = e.args
+
+        # row AHORA es el diccionario que Vue envió
+        description = row.get('description', '')
+
+        resultado = self.validate_description_e(description)
+
+        if resultado is not True:
+            error_label.set_text(resultado)
+            dialog_error.open()
+
+    
 
     def add_editable_slot(
         self,
         field_name: str,
         label: str,
         input_type: str = "text",
-        max_length: int = 60,
+        max_length: int = 150,
         style_overrides: dict | str | None = None,
         input_style: str = "width: auto; min-width: 1ch; font: inherit;",
         validator=None,
@@ -491,36 +532,34 @@ class HTMLConverterUI:
         # --- Construir HTML dinámicamente ---
         slot_html = f"""
 <q-td :props="props">
+
   <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
 
-    <!-- Primera fila: input -->
-    <div style="display: flex; flex-direction: row; align-items: center; width: 100%;">
-      <q-input
-        dense
-        outlined
-        type="{input_type}"
-        v-model="props.row.{field_name}"
-        placeholder="{placeholder_text}"
-        maxlength="{max_length}"
-        style="{style_str}"
-        input-style="{input_style}"
-      />
-    </div>
+    <!-- INPUT -->
+    <q-input
+      dense
+      outlined
+      type="{input_type}"
+      v-model="props.row.{field_name}"
+      placeholder="{placeholder_text}"
+      maxlength="{max_length}"
+      style="{style_str}"
+      input-style="{input_style}"
+    />
 
-    <!-- Segunda fila: botón -->
-    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px;">
-      <q-btn
-        dense
-        flat
-        round
-        color="positive"
-        icon="check"
-        size="sm"
-        @click="$parent.$emit('{event_name}', props.row)"
-      />
-    </div>
+    <!-- BOTÓN (dinámico) -->
+    <q-btn
+      dense
+      flat
+      round
+      size="sm"
+      :icon="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°C]*$/.test(props.row.description) ? 'check' : 'close'" 
+      :color="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°C]*$/.test(props.row.description) ? 'positive' : 'negative'" 
+      @click="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°C]*$/.test(props.row.description) ? $parent.$emit('{event_name}', props.row) :$parent.$emit('openError', props.row)"
+    />
 
   </div>
+
 </q-td>
 """
         # --- Registrar el slot ---
@@ -601,7 +640,7 @@ class HTMLConverterUI:
             ).classes('w-full').style('transform: scale(0.9); transform-origin: top center;').props('flat bordered dense')
 
             self.table.on('selection', self.handle_selection)
-
+            self.table.on('openError', self.handle_error_click)
             # --- Selector desplegable (drop-down) en la columna "estado" ---
             # Usamos un slot de la tabla para renderizar un QSelect por fila.
             # Al actualizar el valor emitimos un evento 'estado-change' que manejamos en Python
@@ -697,7 +736,7 @@ class HTMLConverterUI:
                 'register', 
                 'Register', 
                 input_type='number', 
-                max_length=60, 
+                max_length=150, 
                 style_overrides={'width': '80px'},
                 input_style="width: 100%; text-align: left;",
                 placeholder= "Add"
@@ -707,7 +746,7 @@ class HTMLConverterUI:
                 'read', 
                 'Read', 
                 input_type='number', 
-                max_length=60, 
+                max_length=150, 
                 style_overrides={'width': 'auto'},
                 input_style="width: auto text-align: left; min-width: 50px;",
                 placeholder= "Add"
@@ -717,7 +756,7 @@ class HTMLConverterUI:
                 'write', 
                 'Write', 
                 input_type='number', 
-                max_length=60, 
+                max_length=150, 
                 style_overrides={'width': 'auto'},
                 input_style="width: auto text-align: left; min-width: 50px;",
                 placeholder= "Add"
@@ -727,7 +766,7 @@ class HTMLConverterUI:
                 'sampling', 
                 'Sampling', 
                 input_type='number', 
-                max_length=60, 
+                max_length=150, 
                 style_overrides={'width': 'auto'},
                 input_style="width: auto text-align: left; min-width: 50px;",
                 placeholder= "Add"
@@ -737,7 +776,7 @@ class HTMLConverterUI:
                 'minvalue', 
                 'Minvalue', 
                 input_type='number', 
-                max_length=60, 
+                max_length=150, 
                 style_overrides={'width': 'auto'},
                 input_style="width: auto text-align: left; min-width: 50px;",
                 placeholder= "Add"
@@ -747,7 +786,7 @@ class HTMLConverterUI:
                 'maxvalue', 
                 'Maxvalue', 
                 input_type='number', 
-                max_length=60, 
+                max_length=150, 
                 style_overrides={'width': 'auto'},
                 input_style="width: auto text-align: left; min-width: 50px;",
                 placeholder= "Add"
@@ -757,7 +796,7 @@ class HTMLConverterUI:
                 'unit', 
                 'Unit', 
                 input_type='text', 
-                max_length=60, 
+                max_length=150, 
                 style_overrides={'width': 'auto'},
                 input_style="width: auto text-align: left; min-width: 50px;",
                 placeholder= "°C"
@@ -767,7 +806,7 @@ class HTMLConverterUI:
                 'description', 
                 'Description', 
                 input_type='text', 
-                max_length=60, 
+                max_length=150, 
                 style_overrides={'width': '150px'},
                 placeholder= "Add"
             )
@@ -776,7 +815,7 @@ class HTMLConverterUI:
                 'name', 
                 'Nombre', 
                 input_type='text', 
-                max_length=60, 
+                max_length=150, 
                 style_overrides={'width': '150px'},
                 placeholder= "Add"
             )
@@ -1478,8 +1517,13 @@ class HTMLConverterUI:
                 return
 
             row_id = str(row.get('id'))
-            new_value = row.get(field_name, '').strip()
-            label = label or field_name.capitalize()
+
+            try:
+                raw_value = row.get(field_name, '')
+                new_value = raw_value.strip() if isinstance(raw_value, str) else raw_value
+            except Exception:
+                ui.notify("No hay cambios para realizar")
+                return
 
             logger.info(f"🧾 Actualizando {label} (ID={row_id}) -> '{new_value}'")
 
