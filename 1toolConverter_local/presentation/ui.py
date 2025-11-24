@@ -309,50 +309,83 @@ class HTMLConverterUI:
             ui.notify(f"Error al generar Excel: {ex}", type='negative')
 
     def create_ui(self):
+        # Fondo suave general
+        ui.query('body').style('background-color: #f8fafc;') 
         ui.dark_mode().set_value(False)
+        
+        # Estilos CSS personalizados
         ui.add_head_html("""
         <style>
         .q-table td, .q-table th {
             white-space: normal !important;
             word-wrap: break-word !important;
-            line-height: 1.3em;
-            vertical-align: top;
-            padding: 6px 8px !important;
+            line-height: 1.4em;
+            vertical-align: middle;
+            padding: 8px 12px !important;
+        }
+        .q-table__card {
+            box-shadow: none !important;
+            border: 1px solid #e2e8f0;
         }
         .q-table__container {
-            max-height: 600px;
+            max-height: 650px;
+        }
+        /* Título de la tabla sticky */
+        .q-table th {
+            position: sticky;
+            top: 0;
+            background: #f1f5f9;
+            z-index: 1;
+            font-weight: 700;
+            color: #334155;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
         }
         </style>
         """)
 
-        with ui.header().classes('items-center justify-between'):
-            ui.label('Creador de librerias').classes('text-xl font-bold')
+        # --- HEADER PROFESIONAL ---
+        with ui.header().classes('bg-slate-800 text-white shadow-md q-py-sm items-center justify-between'):
+            with ui.row().classes('items-center gap-3 q-pl-md'):
+                ui.icon('library_books', size='md').classes('text-blue-400')
+                with ui.column().classes('gap-0'):
+                    ui.label('Creador de Librerías').classes('text-xl font-bold tracking-tight')
+                    ui.label('Herramienta de conversión y gestión').classes('text-xs text-slate-400')
+            
+            # Espacio para info de usuario o versión si fuera necesario
+            ui.label('v1.0').classes('q-pr-md text-slate-500 text-xs')
 
-        with ui.column().classes('w-full p-4 md:p-8 items-center gap-8'):
-            # 🆕 NUEVO: Selector de backend al inicio
-            with ui.card().classes('w-full max-w-2xl'):
-                ui.label('0. Seleccionar Backend').classes('text-lg font-bold')
-                ui.separator()
-                self.backend_selector = ui.select(
-                    options=['Keyter', 'iPro', 'Cefa', 'Dixell'],
-                    label='Selecciona el backend',
-                    on_change=self.handle_backend_selection
-                ).props('outlined dense clearable').classes('w-64')
+        # --- CONTENEDOR PRINCIPAL ---
+        with ui.column().classes('w-full max-w-7xl mx-auto p-6 gap-8'):
+            
+            # PASO 0: BACKEND
+            with ui.card().classes('w-full p-6 rounded-xl shadow-sm border border-slate-200 bg-white'):
+                with ui.row().classes('items-center gap-2 mb-4'):
+                    ui.icon('settings', size='sm').classes('text-slate-600')
+                    ui.label('0. Configuración Inicial').classes('text-lg font-semibold text-slate-800')
+                
+                ui.separator().classes('mb-6')
+                
+                with ui.row().classes('items-center gap-4'):
+                    self.backend_selector = ui.select(
+                        options=['Keyter', 'iPro', 'Cefa', 'Dixell'],
+                        label='Selecciona Backend',
+                        on_change=self.handle_backend_selection
+                    ).props('outlined dense options-dense behavior="menu"').classes('w-64')
+                    
+                    ui.label('Selecciona el sistema de entrada para configurar los formatos aceptados.').classes('text-sm text-slate-500 italic')
 
             self._create_upload_section()
             self._create_process_section()
             self._create_table_section()
             self._create_group_table_section()
 
-            # 🆕 Desactivar todo hasta elegir backend
-            if self.process_button:
-                self.process_button.disable()
-            if self.upload_component:
-                self.upload_component.disable()
-            if self.table_card:
-                self.table_card.visible = False
-            if self.group_table_card:
-                self.group_table_card.visible = False
+            # Estado inicial desactivado
+            if self.process_button: self.process_button.disable()
+            if self.upload_component: self.upload_component.disable()
+            if self.table_card: self.table_card.visible = False
+            if self.group_table_card: self.group_table_card.visible = False
 
     def handle_backend_selection(self, e):
         """🆕 Activa o desactiva la UI según el backend seleccionado."""
@@ -465,12 +498,12 @@ class HTMLConverterUI:
 
             # 🔹 Crear componente de subida
             self.upload_component = ui.upload(
-                label="Seleccionar o arrastrar archivo aquí",
+                label="Arrastra tu archivo aquí o haz clic",
                 auto_upload=True,
                 max_files=max_files,
-            ).props(f'flat bordered square no-wrap accept="{accept_types}"').classes(
-                'w-96 h-32 justify-left items-left text-center bg-gray-50 hover:bg-gray-100 '
-                'rounded-2xl border border-gray-300'
+            ).props(f'flat bordered accept="{accept_types}" color="primary"').classes(
+                'w-full h-auto min-h-[120px] rounded-lg border-2 border-dashed border-slate-300 '
+                'bg-slate-50 hover:bg-blue-50 hover:border-blue-400 transition-colors duration-300'
             )
 
             # Asociar el manejador de subida
@@ -484,25 +517,30 @@ class HTMLConverterUI:
 
 
     def _create_upload_section(self):
-        with ui.card().classes('w-full max-w-2xl mx-auto p-4'):
-            ui.label('1. Cargar Archivo').classes('text-lg font-bold mb-2')
-            ui.separator()
-
-            # 🔹 Contenedor dinámico del upload
-            self.upload_container = ui.column().classes('w-full items-left justify-left')
+        # Usamos card con bordes redondeados y sombra suave
+        with ui.card().classes('w-full p-6 rounded-xl shadow-sm border border-slate-200 bg-white'):
+            with ui.row().classes('items-center gap-2 mb-2'):
+                ui.icon('cloud_upload', size='sm').classes('text-slate-600')
+                ui.label('1. Cargar Archivo').classes('text-lg font-semibold text-slate-800')
+            
+            ui.separator().classes('mb-6')
+            self.upload_container = ui.column().classes('w-full')
             self._recreate_upload_component()
 
 
 
     def _create_process_section(self):
-        with ui.card().classes('w-full max-w-2xl'):
-            ui.label('2. Procesar el Archivo y Mostrar Tabla').classes('text-lg font-bold')
-            with ui.row():
+         with ui.card().classes('w-full p-6 rounded-xl shadow-sm border border-slate-200 bg-white'):
+            with ui.row().classes('items-center justify-between w-full'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('build_circle', size='sm').classes('text-slate-600')
+                    ui.label('2. Procesamiento').classes('text-lg font-semibold text-slate-800')
+                
                 self.process_button = ui.button(
                     'Procesar Archivo',
                     on_click=self.process_file,
-                    icon='play_for_work'
-                )
+                    icon='play_arrow'
+                ).props('unelevated rounded color=primary').classes('px-6 py-2 font-bold shadow-md')
                 self.process_button.disable()
 
     
@@ -512,7 +550,7 @@ class HTMLConverterUI:
             return "El texto está vacío"
 
         # 1. Limpiar caracteres no válidos y comparar
-        cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/%°C]", "", texto)
+        cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/%°CñÑáéíóúÁÉÍÓÚ()]", "", texto)
         if cleaned != texto:
             return "Caracteres no permitidos encontrados"
 
@@ -561,365 +599,156 @@ class HTMLConverterUI:
         self.update_error_counter()
 
 
-    def add_editable_slot(
-        self,
-        field_name: str,
-        label: str,
-        input_type: str = "text",
-        max_length: int = 150,
-        style_overrides: dict | str | None = None,
-        input_style: str = "width: auto; min-width: 1ch; font: inherit;",
-        validator=None,
-        placeholder: str | None = None,
-    ):
+    def add_editable_slot(self, field_name: str, label: str, input_type: str = "text", max_length: int = 150, 
+                          style_overrides: dict | str | None = None, input_style: str = "width: auto; min-width: 1ch;", 
+                          validator=None, placeholder: str | None = None):
+        # ... (LÓGICA INTACTA, SOLO AJUSTES VISUALES EN HTML)
         event_name = f"{field_name}-change"
         slot_name = f"body-cell-{field_name}"
 
-        # --- Convertir estilos a string si es dict ---
         if isinstance(style_overrides, dict):
             style_str = "; ".join(f"{k}: {v}" for k, v in style_overrides.items())
         elif isinstance(style_overrides, str):
             style_str = style_overrides
         else:
-            style_str = "width: fit-content; min-width: 1ch; max-width: 100%;"
+            style_str = "width: 100%;"
 
-        # --- Definir placeholder dinámico ---
         placeholder_text = placeholder or ""
-        # --- Construir HTML dinámicamente ---
         slot_html = f"""
-<q-td :props="props">
-
-  <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-
-    <!-- INPUT -->
-    <q-input
-      dense
-      outlined
-      type="{input_type}"
-      v-model="props.row.{field_name}"
-      placeholder="{placeholder_text}"
-      maxlength="{max_length}"
-      style="{style_str}"
-      input-style="{input_style}"
-    />
-
-    <!-- BOTÓN (dinámico) -->
-    <q-btn
-      dense
-      flat
-      round
-      size="sm"
-      :icon="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°C]*$/.test(props.row.description) ? 'check' : 'close'" 
-      :color="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°C]*$/.test(props.row.description) ? 'positive' : 'negative'" 
-      @click="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°C]*$/.test(props.row.description) ? $parent.$emit('{event_name}', props.row) :$parent.$emit('openError', props.row)"
-    />
-
-  </div>
-
-</q-td>
-"""
-        # --- Registrar el slot ---
+        <q-td :props="props">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <q-input dense outlined bg-color="white" type="{input_type}" v-model="props.row.{field_name}"
+              placeholder="{placeholder_text}" maxlength="{max_length}" style="{style_str}" input-style="{input_style}" />
+            <q-btn dense flat round size="sm" 
+              :icon="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'check_circle' : 'cancel'" 
+              :color="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'positive' : 'negative'" 
+              @click="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? $parent.$emit('{event_name}', props.row) :$parent.$emit('openError', props.row)"
+            />
+          </div>
+        </q-td>
+        """
         self.table.add_slot(slot_name, slot_html)
 
-        # --- Envolver el handler con validación ---
         def wrapped_handler(e, fn=field_name, lbl=label):
             self.toggle_error_filter(e)
             self.update_error_counter()
-        
-            # Validar antes de procesar
             if validator:
                 args = getattr(e, 'args', e)
                 row = args if isinstance(args, dict) else args[0]
                 val = row.get(fn)
                 result = validator(val)
-                if result is False:
-                    ui.notify(f"Valor inválido para {lbl}", type='warning')
-                    return
-                elif isinstance(result, str):
-                    ui.notify(result, type='warning')
-                    return
+                if result is False: ui.notify(f"Valor inválido para {lbl}", type='warning'); return
+                elif isinstance(result, str): ui.notify(result, type='warning'); return
             self.handle_field_change(e, fn, lbl)
 
-        # --- Vincular evento ---
         self.table.on(event_name, wrapped_handler)
 
         logger.info(f"✅ Slot editable '{field_name}' registrado (tipo={input_type})")
 
 
     def _create_table_section(self):
-        with ui.card().classes('w-full') as table_card:
-            ui.label("3. Tabla de Parámetros").classes('text-lg font-bold')
-            ui.separator()
+        with ui.card().classes('w-full p-0 rounded-xl shadow-md border border-slate-200 overflow-hidden bg-white') as table_card:
+            # Header de la tarjeta
+            with ui.row().classes('p-4 bg-slate-50 border-b border-slate-200 items-center justify-between'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('table_chart', size='sm').classes('text-slate-600')
+                    ui.label("3. Parámetros Detectados").classes('text-lg font-semibold text-slate-800')
+                
+                # Botón de errores destacado
+                self.error_button = ui.button("Errores: 0", on_click=self.toggle_error_filter).props("icon=warning color=negative outline rounded")
 
             self.table_card = table_card
             self.table_card.visible = False
 
-            cols = [
-            "id", "register", "name", "description", "read", "write",
-            "sampling", "minvalue", "maxvalue", "unit", "view", "error_flag"
-        ]
-
-            # Selector de columna + campo de búsqueda
-            with ui.row().classes('mt-2 mb-2 items-center gap-2'):
-                ui.label('Buscar en:').classes('text-sm')
-
+            # Filtros en barra gris claro
+            with ui.row().classes('p-4 gap-4 items-end bg-white'):
                 self.search_column_selector = ui.select(
-                    options=['register', 'name', 'description', 'system_category'],
-                    value='name',
-                    label='Columna',
-                    on_change= self.reset_search_input
-                ).props('dense outlined').classes('w-48')
+                    options=['register', 'name', 'description', 'system_category'], value='name', label='Buscar columna',
+                    on_change=self.reset_search_input
+                ).props('outlined dense options-dense').classes('w-48')
 
-                self.search_input = ui.input(
-                    placeholder='Buscador...',
-                    on_change=self.apply_search_filter
-                ).props('dense clearable outlined').classes('flex-1')
-                self.error_button = ui.button(
-                    "Errores: 0",
-                    on_click=self.toggle_error_filter
-                ).props("color=negative outlined")
-
-
-
-            # --- Filtro por system_category ---
-            with ui.row().classes('mt-2 mb-2 items-center gap-2'):
-                ui.label('Filtrar por grupo:').classes('text-sm')
+                self.search_input = ui.input(placeholder='Escribe para buscar...', on_change=self.apply_search_filter
+                ).props('outlined dense clearable').classes('flex-1 min-w-[100px]')
 
                 self.category_filter = ui.select(
-                    options=[
-                        'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'
-                    ],
-                    multiple=True,
-                    label='Selecciona grupos',
-                    clearable=True,
-                    on_change=self.apply_category_filter
-                ).props('dense outlined use-chips clearable').classes('w-96')
+                    options=['ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND', 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'],
+                    multiple=True, label='Filtrar por grupo', clearable=True, on_change=self.apply_category_filter
+                ).props('outlined dense use-chips clearable').classes('w-full md:w-1/3')
 
-            # Tabla con paginación
+            # Tabla
+            cols = ["id", "register", "name", "description", "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view", "error_flag"]
+            
             self.table = ui.table(
-                columns=[
-                    {'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True}
-                    for c in cols
-                ],
-                rows=[],  # ❗ Aquí debe ir la lista vacía
+                columns=[{'name': c, 'label': c.replace('_', ' ').title(), 'field': c, 'sortable': True} for c in cols],
+                rows=[],
                 row_key='id',
                 selection='multiple',
                 pagination=self.pagination_main,
                 on_pagination_change=self.handle_main_pagination,
-            ).classes('w-full').style(
-                'transform: scale(0.9); transform-origin: top center;'
-            ).props('flat bordered dense')
+            ).classes('w-full').props('flat dense') # Quitamos bordered aquí porque el card ya tiene borde
 
             self.table.on('selection', self.handle_selection)
             self.table.on('openError', self.handle_error_click)
-            # --- Selector desplegable (drop-down) en la columna "estado" ---
-            # Usamos un slot de la tabla para renderizar un QSelect por fila.
-            # Al actualizar el valor emitimos un evento 'estado-change' que manejamos en Python
-            self.table.add_slot('body-cell-estado', '''
-    <q-td key="estado" :props="props">
-        <q-select
-            v-model="props.row.system_category"
-            :options="[
-                'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
-            ]"
-            dense filled outlined emit-value map-options
-            @update:model-value="$parent.$emit('estado-change', props.row)"
-            popup-content-class="bg-white text-black"
-        >
-            <template v-slot:selected-item="scope">
-                <div style="display:flex; align-items:center; gap:6px;">
-                    <div :style="{
-                        width: '20px',
-                        height: '20px',
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'white',
-                        fontSize: '12px',
-                        backgroundColor: ({
-                            'ALARM': 'red',
-                            'SET_POINT': '#0E57E8',
-                            'CONFIG_PARAMETER': '#1CCDD6',
-                            'COMMAND': 'purple',
-                            'ANALOG_INPUT': '#00E343',
-                            'ANALOG_OUTPUT': '#13662C',
-                            'DIGITAL_INPUT': 'blue',
-                            'DIGITAL_OUTPUT': 'black',
-                            'STATUS': '#1F6E6E',
-                            'SYSTEM': '#C6B132'
-                        }[props.row.system_category] || 'grey')
-                    }">
-                        {{ props.row.system_category.charAt(0) }}
-                    </div>
-                    <span>{{ props.row.system_category }}</span>
-                </div>
-            </template>
-        </q-select>
-    </q-td>
-''')
 
-            # Registrar el manejador del evento emitido desde el slot
+            # --- SLOT: ESTADO (Category) con diseño de Chips ---
+            self.table.add_slot('body-cell-estado', '''
+            <q-td key="estado" :props="props">
+                <q-select v-model="props.row.system_category" dense borderless emit-value map-options
+                    :options="['ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND', 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM']"
+                    @update:model-value="$parent.$emit('estado-change', props.row)">
+                    <template v-slot:selected-item="scope">
+                        <q-chip dense :style="{backgroundColor: ({
+                            'ALARM': '#ef4444', 'SET_POINT': '#3b82f6', 'CONFIG_PARAMETER': '#06b6d4', 'COMMAND': '#a855f7',
+                            'ANALOG_INPUT': '#22c55e', 'ANALOG_OUTPUT': '#15803d', 'DIGITAL_INPUT': '#3b82f6', 'DIGITAL_OUTPUT': '#1e293b',
+                            'STATUS': '#0f766e', 'SYSTEM': '#eab308'
+                        }[props.row.system_category] || '#94a3b8'), color: 'white'}">
+                            {{ props.row.system_category }}
+                        </q-chip>
+                    </template>
+                </q-select>
+            </q-td>
+            ''')
             self.table.on('estado-change', self.handle_estado_change)
 
+            # --- SLOT: VIEW ---
             self.table.add_slot('body-cell-view', '''
-    <q-td key="estado" :props="props">
-        <q-select
-            v-model="props.row.view"
-            :options="[
-                'basic', 'simple', 'primary'
-            ]"
-            dense filled outlined emit-value map-options
-            @update:model-value="$parent.$emit('view-change', props.row)"
-            popup-content-class="bg-white text-black"
-        >
-            <template v-slot:selected-item="scope">
-                <div style="display:flex; align-items:center; gap:6px;">
-                    <div :style="{
-                        width: '20px',
-                        height: '20px',
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'white',
-                        fontSize: '12px',
-                        backgroundColor: ({
-                            'basic': 'black',
-                            'primary': 'blue',
-                                 'simple':  'teal'
-                        }[props.row.view] || 'grey')
-                    }">
-                        {{ props.row.view.charAt(0) }}
-                    </div>
-                    <span>{{ props.row.view }}</span>
-                </div>
-            </template>
-        </q-select>
-    </q-td>
-''')
-            # Registrar el manejador del evento emitido desde el slot
+            <q-td key="view" :props="props">
+                <q-select v-model="props.row.view" dense borderless emit-value map-options
+                    :options="['basic', 'simple', 'primary']"
+                    @update:model-value="$parent.$emit('view-change', props.row)">
+                    <template v-slot:selected-item="scope">
+                         <q-badge :color="({ 'basic': 'black', 'primary': 'blue', 'simple': 'teal' }[props.row.view] || 'grey')">
+                            {{ props.row.view }}
+                        </q-badge>
+                    </template>
+                </q-select>
+            </q-td>
+            ''')
             self.table.on('view-change', self.handle_view_change)
 
-            # Slots editables
-            self.add_editable_slot(
-                'register', 
-                'Register', 
-                input_type='number', 
-                max_length=150, 
-                style_overrides={'width': '80px'},
-                input_style="width: 100%; text-align: left;",
-                placeholder= "Add"
-            )
+            # Re-añadir slots editables con estilo
+            self.add_editable_slot('register', 'Register', input_type='number', style_overrides={'width': '80px'})
+            self.add_editable_slot('read', 'Read', input_type='number', style_overrides={'width': '60px'})
+            self.add_editable_slot('write', 'Write', input_type='number', style_overrides={'width': '60px'})
+            self.add_editable_slot('sampling', 'Sampling', input_type='number', style_overrides={'width': '60px'})
+            self.add_editable_slot('minvalue', 'Min', input_type='number', style_overrides={'width': '70px'})
+            self.add_editable_slot('maxvalue', 'Max', input_type='number', style_overrides={'width': '70px'})
+            self.add_editable_slot('unit', 'Unit', style_overrides={'width': '50px'}, placeholder="°C")
+            self.add_editable_slot('description', 'Description', style_overrides={'min-width': '250px'})
+            self.add_editable_slot('name', 'Nombre', style_overrides={'min-width': '150px'})
 
-            self.add_editable_slot(
-                'read', 
-                'Read', 
-                input_type='number', 
-                max_length=150, 
-                style_overrides={'width': 'auto'},
-                input_style="width: auto text-align: left; min-width: 50px;",
-                placeholder= "Add"
-            )
-
-            self.add_editable_slot(
-                'write', 
-                'Write', 
-                input_type='number', 
-                max_length=150, 
-                style_overrides={'width': 'auto'},
-                input_style="width: auto text-align: left; min-width: 50px;",
-                placeholder= "Add"
-            )
-
-            self.add_editable_slot(
-                'sampling', 
-                'Sampling', 
-                input_type='number', 
-                max_length=150, 
-                style_overrides={'width': 'auto'},
-                input_style="width: auto text-align: left; min-width: 50px;",
-                placeholder= "Add"
-            )
-
-            self.add_editable_slot(
-                'minvalue', 
-                'Minvalue', 
-                input_type='number', 
-                max_length=150, 
-                style_overrides={'width': 'auto'},
-                input_style="width: auto text-align: left; min-width: 50px;",
-                placeholder= "Add"
-            )
-
-            self.add_editable_slot(
-                'maxvalue', 
-                'Maxvalue', 
-                input_type='number', 
-                max_length=150, 
-                style_overrides={'width': 'auto'},
-                input_style="width: auto text-align: left; min-width: 50px;",
-                placeholder= "Add"
-            )
-
-            self.add_editable_slot(
-                'unit', 
-                'Unit', 
-                input_type='text', 
-                max_length=150, 
-                style_overrides={'width': 'auto'},
-                input_style="width: auto text-align: left; min-width: 50px;",
-                placeholder= "°C"
-            )
-
-            self.add_editable_slot(
-                'description', 
-                'Description', 
-                input_type='text', 
-                max_length=150, 
-                style_overrides={'width': '150px'},
-                placeholder= "Add"
-            )
-
-            self.add_editable_slot(
-                'name', 
-                'Nombre', 
-                input_type='text', 
-                max_length=150, 
-                style_overrides={'width': '150px'},
-                placeholder= "Add"
-            )
-
-            # --- Controles debajo de la tabla ---
-            with ui.row().classes('mt-4 items-center gap-4 justify-start'):
-                self.group_selector = ui.select(
-                    options=[
-                        'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'
-                    ],
-                    label='Asignar a grupo',
-                ).props('dense outlined').classes('w-64')
-
-                self.assign_button = ui.button(
-                    'Asignar grupo',
-                    on_click=self.assign_group_to_selection,
-                    icon='check_circle'
-                ).props('color=positive outlined')
-
-                self.add_row_button = ui.button(
-                    'Agregar fila',
-                    on_click=self.add_new_row,
-                    icon='add'
-                ).props('color=primary outlined')
-
-            with ui.row().classes('mt-4 items-center gap-4 justify-start'):
-                self.download_map_button = ui.button(
-                    'Descargar mapa de variables',
-                    on_click=self.download_variable_map,
-                    icon='download'
-                ).props('color=secondary outlined')
+            # --- Panel de Acciones en Lote (Pie de tabla) ---
+            with ui.row().classes('p-4 bg-slate-50 border-t border-slate-200 gap-4 items-center justify-between'):
+                with ui.row().classes('items-center gap-3'):
+                    self.group_selector = ui.select(
+                        options=['ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND', 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'],
+                        label='Asignar Grupo a Selección'
+                    ).props('outlined dense options-dense behavior="menu"').classes('w-64 bg-white')
+                    
+                    self.assign_button = ui.button('Asignar', on_click=self.assign_group_to_selection).props('unelevated color=primary icon=low_priority')
+                
+                ui.button('Agregar Fila Manual', on_click=self.add_new_row).props('outline color=secondary icon=add')
+                ui.button('Generar Mapa de Variables', on_click=self.download_variable_map).props('outline color=info icon=map')
 
         self.table.on('click', lambda e: logger.info("✅ Evento click detectado en tabla"))
 
@@ -972,73 +801,41 @@ class HTMLConverterUI:
         self.table.update()
 
 
-
     def _create_group_table_section(self):
-        with ui.card().classes('w-full max-w-6xl') as group_card:
-            ui.label("4. Tabla de Variables Clasificadas").classes('text-lg font-bold')
-            ui.separator()
+        with ui.card().classes('w-full p-0 rounded-xl shadow-md border border-slate-200 overflow-hidden bg-white mt-6') as group_card:
+            # Header
+            with ui.row().classes('p-4 bg-slate-50 border-b border-slate-200 items-center gap-2'):
+                ui.icon('category', size='sm').classes('text-slate-600')
+                ui.label("4. Clasificación Final").classes('text-lg font-semibold text-slate-800')
 
-            # --- Filtros superiores (idénticos a la primera tabla) ---
-            with ui.row().classes('mt-2 mb-2 items-center gap-2'):
-                ui.label('Buscar en:').classes('text-sm')
+            self.group_table_card = group_card
+            self.group_table_card.visible = False
 
+            # Filtros
+            with ui.row().classes('p-4 gap-4 bg-white'):
                 self.group_search_column_selector = ui.select(
-                    options=['register', 'name', 'description', 'system_category'],
-                    value='name',
-                    label='Columna',
-                    on_change= self.reset_group_search_input
-                ).props('dense outlined').classes('w-48')
-
-                self.group_search_input = ui.input(
-                    placeholder='Buscador...',
-                    on_change=self.apply_group_search_filter
-                ).props('dense clearable outlined').classes('flex-1')
-
-            with ui.row().classes('mt-2 mb-2 items-center gap-2'):
-                ui.label('Filtrar por grupo:').classes('text-sm')
-
+                    options=['register', 'name', 'description', 'system_category'], value='name', label='Buscar columna',
+                    on_change=self.reset_group_search_input
+                ).props('outlined dense').classes('w-48')
+                self.group_search_input = ui.input(placeholder='Buscar...', on_change=self.apply_group_search_filter).props('outlined dense clearable').classes('flex-1')
                 self.group_category_filter = ui.select(
-                    options=[
-                        'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                        'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'
-                    ],
-                    multiple=True,
-                    label='Selecciona grupos',
-                    clearable=True,
-                    on_change=self.apply_group_category_filter
-                ).props('dense outlined use-chips clearable').classes('w-96')
+                    options=['ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND', 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'],
+                    multiple=True, label='Filtrar grupos', clearable=True, on_change=self.apply_group_category_filter
+                ).props('outlined dense use-chips').classes('w-1/3')
 
-            # --- Tabla con paginación ---
             self.group_table = ui.table(
-                columns=[],
-                rows=[],
-                row_key='id',
-                selection='multiple',
-                pagination=self.pagination_group,
-                on_pagination_change=self.handle_group_pagination,
-            ).classes('w-full h-96').props('flat bordered dense')
-
+                columns=[], rows=[], row_key='id', selection='multiple',
+                pagination=self.pagination_group, on_pagination_change=self.handle_group_pagination,
+            ).classes('w-full').props('flat dense')
             self.group_table.on('selection', self.handle_group_selection)
 
-            with ui.row().classes('mt-4 items-center gap-4'):
-                self.delete_rows_button = ui.button(
-                    'Eliminar filas seleccionadas', 
-                    on_click=self.delete_selected_group_rows, 
-                    icon='delete'
-                ).props('color=negative')
-
-                self.clear_table_button = ui.button(
-                    'Borrar toda la tabla', 
-                    on_click=self.clear_group_table, 
-                    icon='delete_forever'
-                ).props('color=warning')
-
-                self.download_button = ui.button(
-                    'Descargar Excel', 
-                    on_click=self.download_excel, 
-                    icon='download'
-                ).props('color=primary')
-
+            # Footer con acciones
+            with ui.row().classes('p-4 bg-slate-50 border-t border-slate-200 justify-between items-center'):
+                with ui.row().classes('gap-2'):
+                    self.delete_rows_button = ui.button('Eliminar Selección', on_click=self.delete_selected_group_rows).props('outline color=negative icon=delete')
+                    self.clear_table_button = ui.button('Limpiar Todo', on_click=self.clear_group_table).props('flat color=warning icon=delete_forever')
+                
+                self.download_button = ui.button('Descargar Excel Final', on_click=self.download_excel).props('unelevated color=positive icon=download size=md').classes('px-6 shadow-md')
                 self.download_button.disable()
 
             self.group_table_card = group_card
@@ -1804,7 +1601,7 @@ class HTMLConverterUI:
                 label="Selecciona las columnas a exportar",
                 with_input=True,
                 clearable=True
-            )
+            ).props('outlined dense options-dense behavior="menu"').classes('w-64 bg-white')
 
             async def confirmar_exportacion():
                 cols = selected_columns.value
@@ -1837,7 +1634,7 @@ class HTMLConverterUI:
 
                 ui.timer(1.0, lambda: asyncio.create_task(cleanup_file(file_path)), once=True)
 
-            ui.button("Descargar Excel", on_click=confirmar_exportacion, color="green")
+            ui.button("Descargar Excel", on_click=confirmar_exportacion, color="green").props('unelevated color=positive icon=download size=md').classes('px-6 shadow-md')
 
         except Exception as ex:
             import traceback
