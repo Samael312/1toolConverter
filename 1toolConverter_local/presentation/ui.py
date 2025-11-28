@@ -545,7 +545,6 @@ class HTMLConverterUI:
 
     
     def validate_description_e(self, texto):
-        import re
         if texto is None:
             return "El texto está vacío"
 
@@ -564,11 +563,10 @@ class HTMLConverterUI:
             self.download_button.disable()
             return "Máximo 150 caracteres permitidos"
 
-        # 3. Validar límite suave (lo que causa que el botón sea 'close' en tu lógica > 60)
+        # 3. Límite suave
         if len(texto) > 60:
             self.download_button.disable()
-            return "La descripcion supera el límite recomendado de 60 caracteres"
-
+            return "La descripción supera el límite recomendado de 60 caracteres"
 
         return True
     
