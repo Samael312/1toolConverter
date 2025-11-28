@@ -1,5 +1,4 @@
 import sys
-import fitz  # PyMuPDF
 import pdfplumber
 import pandas as pd
 from openpyxl import Workbook
@@ -663,26 +662,9 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
         return pd.DataFrame(columns=LIBRARY_COLUMNS)
 
     descripcion = []
-    zonas_colores = []
     tablas_detectadas = 0
     hojas = {}
     ultima_hoja_valida = None
-
-    # --- Detectar zonas coloreadas ---
-    try:
-        with fitz.open(stream=pdf_io, filetype="pdf") as pdf:
-            for num, pagina in enumerate(pdf, start=1):
-                # get_drawings puede fallar si la página no tiene dibujos
-                try:
-                    for d in pagina.get_drawings():
-                        color = d.get("fill")
-                        if color and any(c > 0 for c in color):
-                            zonas_colores.append((num, color))
-                except Exception:
-                    continue
-        descripcion.append(f"🔹 Zonas con color detectadas: {len(zonas_colores)}")
-    except Exception as e:
-        logger.warning(f"Imposible analizar dibujos con fitz: {e}")
 
     # --- Reiniciar el buffer para pdfplumber ---
     pdf_io.seek(0)
