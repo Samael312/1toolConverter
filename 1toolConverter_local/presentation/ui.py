@@ -550,9 +550,14 @@ class HTMLConverterUI:
             return "El texto está vacío"
 
         # 1. Limpiar caracteres no válidos y comparar
-        cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/%°CñÑáéíóúÁÉÍÓÚ()]", "", texto)
+        cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/'º°ª|@#!·$=?¿%&C-_çÇ<>~¬*-+–ΣβßηθΘδΔφΦωΩτΣπΠεØñÑáéíóúÁÉÍÓÚ()]", "", texto)
         if cleaned != texto:
             return "Caracteres no permitidos encontrados"
+
+# 2. Validar longitud máximagit  absoluta
+        if len(texto) == 0:
+            self.download_button.disable()
+            return "La descripcion no puede estar vacia"
 
         # 2. Validar longitud máxima absoluta
         if len(texto) > 150:
@@ -566,6 +571,8 @@ class HTMLConverterUI:
 
 
         return True
+    
+
     
     def handle_error_click(self, e):
         error_label = None
@@ -620,9 +627,9 @@ class HTMLConverterUI:
             <q-input dense outlined bg-color="white" type="{input_type}" v-model="props.row.{field_name}"
               placeholder="{placeholder_text}" maxlength="{max_length}" style="{style_str}" input-style="{input_style}" />
             <q-btn dense flat round size="sm" 
-              :icon="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'check_circle' : 'cancel'" 
-              :color="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'positive' : 'negative'" 
-              @click="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? $parent.$emit('{event_name}', props.row) :$parent.$emit('openError', props.row)"
+              :icon="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/'º°ª|@#!·$=?¿%&C-_çÇ<>~¬*-+–ΣβßηθΘδΔφΦωΩτΣπΠεØñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'check_circle' : 'cancel'" 
+              :color="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/'º°ª|@#!·$=?¿%&C-_çÇ<>~¬*-+–ΣβßηθΘδΔφΦωΩτΣπΠεØñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'positive' : 'negative'" 
+              @click="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/'º°ª|@#!·$=?¿%&C-_çÇ<>~¬*-+–ΣβßηθΘδΔφΦωΩτΣπΠεØñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? $parent.$emit('{event_name}', props.row) :$parent.$emit('openError', props.row)"
             />
           </div>
         </q-td>
