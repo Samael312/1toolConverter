@@ -624,7 +624,7 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
     if "system_category" in df.columns:
         system_type = df["system_category"].astype(str).str.upper().str.strip()
 
-        mask_digital = system_type.isin(["DIGITAL_OUTPUT","DIGITAL_INPUT","STATUS", "ALARM"])
+        mask_digital = system_type.isin(["DIGITAL_OUTPUT","DIGITAL_INPUT","STATUS", "ALARM", "COMMAND"])
         mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
         df.loc[mask_digital & mask_empty, ["minvalue", "maxvalue"]] = [0, 1]
 
@@ -642,11 +642,6 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
     mask_sp = df["system_category"].astype(str).str.upper().eq("SET_POINT")
     mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
     df.loc[(mask_sp | mask_empty) & mask_empty, ["minvalue", "maxvalue"]] = [0, 9999]
-
-    # --- 6 Detectar y marcar COMMAND ---
-    mask_co = df["system_category"].astype(str).str.upper().eq("COMMAND")
-    mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
-    df.loc[mask_co & mask_empty, ["minvalue", "maxvalue"]] = [0, 100]
 
     return df
 # ====================================================
