@@ -282,8 +282,8 @@ class HTMLConverterUI:
                 df_to_export = self.processed_data
                 file_name = 'parametros_convertidos.xlsx'
 
-            if 'category' in df_to_export.columns:
-               df_to_export['category'] = np.nan
+            #if 'category' in df_to_export.columns:
+            #   df_to_export['category'] = np.nan
             
             if 'id' in df_to_export.columns:
                 df_to_export['id']=np.nan

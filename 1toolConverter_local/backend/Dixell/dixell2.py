@@ -65,7 +65,7 @@ COLUMNAS_VALIDAS1 = {
 
 COLUMNAS_VALIDAS2 = {
     "R/W": ["R / W", "RW", "Access", "Acceso", "R/W"],
-    "REGISTER[hex]": ["Dec", "Decimals", "Resolution", "REGISTER[hex]", "HEX"],
+    "REGISTER[hex]": ["Resolution", "REGISTER[hex]", "HEX"],
     "DEC": ["DEC", "DECIMAL"],
     "VAR NAME": ["VAR NAME", "VAR"],
     "DESCRIPTION": ["DESCRIPTION", "description"],
