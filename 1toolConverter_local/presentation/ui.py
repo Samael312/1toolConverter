@@ -5,6 +5,7 @@ import numpy as np
 from nicegui import ui
 import logging
 from tempfile import NamedTemporaryFile
+import re
 import os
 import asyncio
 
@@ -281,8 +282,8 @@ class HTMLConverterUI:
                 df_to_export = self.processed_data
                 file_name = 'parametros_convertidos.xlsx'
 
-            if 'category' in df_to_export.columns:
-               df_to_export['category'] = np.nan
+            #if 'category' in df_to_export.columns:
+            #   df_to_export['category'] = np.nan
             
             if 'id' in df_to_export.columns:
                 df_to_export['id']=np.nan
@@ -545,14 +546,18 @@ class HTMLConverterUI:
 
     
     def validate_description_e(self, texto):
-        import re
         if texto is None:
             return "El texto está vacío"
-
+        
         # 1. Limpiar caracteres no válidos y comparar
         cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]", "", texto)
         if cleaned != texto:
             return "Caracteres no permitidos encontrados"
+
+# 2. Validar longitud máximagit  absoluta
+        if len(texto) == 0:
+            self.download_button.disable()
+            return "La descripcion no puede estar vacia"
 
         # 2. Validar longitud máxima absoluta
         if len(texto) > 150:
@@ -562,13 +567,14 @@ class HTMLConverterUI:
             self.download_button.disable()
             return "Debe tener descripcion"
 
-        # 3. Validar límite suave (lo que causa que el botón sea 'close' en tu lógica > 60)
+        # 3. Límite suave
         if len(texto) > 60:
             self.download_button.disable()
-            return "La descripcion supera el límite recomendado de 60 caracteres"
-
+            return "La descripción supera el límite recomendado de 60 caracteres"
 
         return True
+    
+
     
     def handle_error_click(self, e):
         error_label = None

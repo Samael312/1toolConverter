@@ -1,5 +1,4 @@
 import sys
-import fitz  # PyMuPDF
 import pdfplumber
 import pandas as pd
 from openpyxl import Workbook
@@ -66,7 +65,7 @@ COLUMNAS_VALIDAS1 = {
 
 COLUMNAS_VALIDAS2 = {
     "R/W": ["R / W", "RW", "Access", "Acceso", "R/W"],
-    "REGISTER[hex]": ["Dec", "Decimals", "Resolution", "REGISTER[hex]", "HEX"],
+    "REGISTER[hex]": ["Resolution", "REGISTER[hex]", "HEX"],
     "DEC": ["DEC", "DECIMAL"],
     "VAR NAME": ["VAR NAME", "VAR"],
     "DESCRIPTION": ["DESCRIPTION", "description"],
@@ -371,14 +370,38 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     system_type = df['system_category'].astype(str).str.upper().str.strip()
     df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
 
-    # marcar por 'name' si contiene output/input
-    mask_do = df['name'].str.contains(r'output', case=False, na=False)
-    df.loc[mask_do, 'system_category'] = 'DIGITAL_OUTPUT'
-    logger.info(f"{mask_do.sum()} filas marcadas como DIGITAL_OUTPUT")
+   # Log para ver qué categorías existen realmente antes de filtrar
+    logger.info(f"Categorías presentes antes de dividir I/O: {df['system_category'].unique()}")
 
-    mask_di = df['name'].str.contains(r'input', case=False, na=False)
-    df.loc[mask_di, 'system_category'] = 'DIGITAL_INPUT'
-    logger.info(f"{mask_di.sum()} filas marcadas como DIGITAL_INPUT")
+    # 1. Definir la máscara de la categoría ambigua (usando contains para ser tolerante a espacios/variaciones)
+    mask_sys_ambiguous = df["system_category"].astype(str).str.contains("DIGITAL OUTPUT/INPUT", case=False, na=False)
+
+    # 2. Buscar 'output' en 'name' O 'description' (por si 'name' está vacío o el texto está en desc)
+    if 'description' not in df.columns:
+        df['description'] = ""
+
+    mask_do_name = df['name'].astype(str).str.contains('output', case=False, na=False)
+    mask_do_desc = df['description'].astype(str).str.contains('output', case=False, na=False)
+    mask_do = mask_do_name | mask_do_desc
+
+    # 3. Buscar 'input' en 'name' O 'description'
+    mask_di_name = df['name'].astype(str).str.contains('input', case=False, na=False)
+    mask_di_desc = df['description'].astype(str).str.contains('input', case=False, na=False)
+    mask_di = mask_di_name | mask_di_desc
+
+    # 4. Aplicar cambios
+    # Prioridad: Si dice Output, es Output. Si dice Input, es Input.
+    
+    # Asignar DIGITAL_OUTPUT
+    df.loc[mask_do & mask_sys_ambiguous, 'system_category'] = 'DIGITAL_OUTPUT'
+    moved_do = (mask_do & mask_sys_ambiguous).sum()
+    logger.info(f"{moved_do} filas movidas de DIGITAL OUTPUT/INPUT a DIGITAL_OUTPUT")
+
+    # Asignar DIGITAL_INPUT
+    df.loc[mask_di & mask_sys_ambiguous, 'system_category'] = 'DIGITAL_INPUT'
+    moved_di = (mask_di & mask_sys_ambiguous).sum()
+    logger.info(f"{moved_di} filas movidas de DIGITAL OUTPUT/INPUT a DIGITAL_INPUT")
+    # --------------------------------
 
     # --- 4️⃣ Detectar y marcar CONFIG_PARAMETER ---
     mask_alert = df["system_category"].astype(str).str.upper().eq("ALARM")
@@ -601,7 +624,7 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
     if "system_category" in df.columns:
         system_type = df["system_category"].astype(str).str.upper().str.strip()
 
-        mask_digital = system_type.isin(["DIGITAL_OUTPUT","DIGITAL_INPUT","STATUS", "ALARM"])
+        mask_digital = system_type.isin(["DIGITAL_OUTPUT","DIGITAL_INPUT","STATUS", "ALARM", "COMMAND"])
         mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
         df.loc[mask_digital & mask_empty, ["minvalue", "maxvalue"]] = [0, 1]
 
@@ -620,11 +643,6 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
     mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
     df.loc[(mask_sp | mask_empty) & mask_empty, ["minvalue", "maxvalue"]] = [0, 9999]
 
-    # --- 6 Detectar y marcar COMMAND ---
-    mask_co = df["system_category"].astype(str).str.upper().eq("COMMAND")
-    mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
-    df.loc[mask_co & mask_empty, ["minvalue", "maxvalue"]] = [0, 100]
-
     return df
 # ====================================================
 # Función principal (robusta)
@@ -639,26 +657,9 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
         return pd.DataFrame(columns=LIBRARY_COLUMNS)
 
     descripcion = []
-    zonas_colores = []
     tablas_detectadas = 0
     hojas = {}
     ultima_hoja_valida = None
-
-    # --- Detectar zonas coloreadas ---
-    try:
-        with fitz.open(stream=pdf_io, filetype="pdf") as pdf:
-            for num, pagina in enumerate(pdf, start=1):
-                # get_drawings puede fallar si la página no tiene dibujos
-                try:
-                    for d in pagina.get_drawings():
-                        color = d.get("fill")
-                        if color and any(c > 0 for c in color):
-                            zonas_colores.append((num, color))
-                except Exception:
-                    continue
-        descripcion.append(f"🔹 Zonas con color detectadas: {len(zonas_colores)}")
-    except Exception as e:
-        logger.warning(f"Imposible analizar dibujos con fitz: {e}")
 
     # --- Reiniciar el buffer para pdfplumber ---
     pdf_io.seek(0)
