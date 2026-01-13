@@ -550,7 +550,7 @@ class HTMLConverterUI:
             return "El texto está vacío"
         
         # 1. Limpiar caracteres no válidos y comparar
-        cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/'º°ª|@#!·$=?¿%&C-_çÇ<>~¬*-+–ΣβßηθΘδΔφΦωΩτΣπΠεØñÑáéíóúÁÉÍÓÚ()]", "", texto)
+        cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]", "", texto)
         if cleaned != texto:
             return "Caracteres no permitidos encontrados"
 
@@ -563,6 +563,9 @@ class HTMLConverterUI:
         if len(texto) > 150:
             self.download_button.disable()
             return "Máximo 150 caracteres permitidos"
+        if len(texto) == 0:
+            self.download_button.disable()
+            return "Debe tener descripcion"
 
         # 3. Límite suave
         if len(texto) > 60:
@@ -626,9 +629,9 @@ class HTMLConverterUI:
             <q-input dense outlined bg-color="white" type="{input_type}" v-model="props.row.{field_name}"
               placeholder="{placeholder_text}" maxlength="{max_length}" style="{style_str}" input-style="{input_style}" />
             <q-btn dense flat round size="sm" 
-              :icon="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/'º°ª|@#!·$=?¿%&C-_çÇ<>~¬*-+–ΣβßηθΘδΔφΦωΩτΣπΠεØñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'check_circle' : 'cancel'" 
-              :color="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/'º°ª|@#!·$=?¿%&C-_çÇ<>~¬*-+–ΣβßηθΘδΔφΦωΩτΣπΠεØñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'positive' : 'negative'" 
-              @click="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/'º°ª|@#!·$=?¿%&C-_çÇ<>~¬*-+–ΣβßηθΘδΔφΦωΩτΣπΠεØñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? $parent.$emit('{event_name}', props.row) :$parent.$emit('openError', props.row)"
+              :icon="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'check_circle' : 'cancel'" 
+              :color="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? 'positive' : 'negative'" 
+              @click="props.row.description && props.row.description.length <= 60 && /^[a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(props.row.description) ? $parent.$emit('{event_name}', props.row) :$parent.$emit('openError', props.row)"
             />
           </div>
         </q-td>

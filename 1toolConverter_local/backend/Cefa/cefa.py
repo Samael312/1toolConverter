@@ -26,11 +26,14 @@ LIBRARY_COLUMNS = [
 COLUMN_MAPPING_PDF = {
     "DIRECCION": "register",
     "DIRECCIÓN": "register",
+    "DIRECCI/nÓN": "register",   # si realmente aparece así en tu PDF
+    "DIRECCI\nÓN": "register",   # ← esta es la variante con salto de línea
     "Nombre": "name",
     "Longitud Word Dato": "length",
     "Longitud\nWord Dato": "length",
     "Valores": "description"
 }
+
 
 DEFAULT_VALUES = {
     "system_category": "DEFAULT",
