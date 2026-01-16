@@ -2,7 +2,7 @@
 Aplicación Conversor Universal (Keyter / iPro)
 Punto de entrada principal y lógica de negocio.
 """
-from nicegui import ui
+from nicegui import ui, run  # <--- 1. IMPORTANTE: Importamos run
 import os
 import logging
 from backend.Keyter.KeyterNew import process_excel as keyter_new_process
@@ -27,33 +27,34 @@ logger = logging.getLogger(__name__)
 # FUNCIÓN UNIFICADA DE PROCESAMIENTO
 # =====================================================
 
-def unified_process_file(mode: str, filename, file_bytes):
+# 2. Convertimos esta función a ASYNC
+async def unified_process_file(mode: str, filename, file_bytes):
     """
-    Ejecuta el backend correspondiente según el modo seleccionado.
-    Para backends de un solo archivo, filename es str.
-    Para Dixell, filename puede ser lista, se ignora.
+    Ejecuta el backend correspondiente en un hilo separado para no congelar la UI.
     """
     try:
         if mode == "Dixell":
             logger.info(f"Procesando {len(file_bytes)} archivos PDF con backend Dixell")
-            return dixell_process_pdf(file_bytes)  # file_bytes es lista
+            # 3. Usamos await run.io_bound para ejecutar en segundo plano
+            # Nota: pasamos la función SIN paréntesis, y luego los argumentos
+            return await run.io_bound(dixell_process_pdf, file_bytes)
 
         # Para otros backends
         ext = os.path.splitext(filename)[1].lower()
         if mode == "Keyter":
             logger.info("Procesando archivo HTML/Excel con backend Keyter")
             if ext in [".html", ".htm"]:
-                return keyter_html_process(file_bytes)
+                return await run.io_bound(keyter_html_process, file_bytes)
             elif ext in [".xls", ".xlsx", ".xlsm"]:
-                return keyter_new_process(file_bytes)
+                return await run.io_bound(keyter_new_process, file_bytes)
 
         elif mode == "iPro":
             logger.info("Procesando archivo Excel con backend iPro")
-            return ipro_convert_excel(file_bytes)
+            return await run.io_bound(ipro_convert_excel, file_bytes)
         
         elif mode == "Cefa":
             logger.info("Procesando archivo PDF con backend Cefa")
-            return cefa_process_pdf(file_bytes)
+            return await run.io_bound(cefa_process_pdf, file_bytes)
         
         else:
             ui.notify("Modo no reconocido", type='warning')
@@ -73,25 +74,53 @@ def main():
     """Inicializa la interfaz y conecta el procesamiento al backend elegido."""
     logger.info("Inicializando interfaz Conversor Universal...")
 
-    def process_with_backend(file_bytes):
+    async def process_with_backend(file_bytes):
         backend = ui_controller.backend_selected
+        
         if not backend:
             ui.notify("Selecciona un backend antes de procesar el archivo.", type="warning")
             return None
 
-        # Para backends que usan un solo archivo (Keyter, iPro, Cefa)
-        if backend in ["Keyter", "iPro", "Cefa"]:
-            filename = ui_controller.uploaded_file_names[-1] if ui_controller.uploaded_file_names else "desconocido"
-            return unified_process_file(backend, filename, file_bytes)
+        # 1. CREAMOS EL DIÁLOGO DE CARGA
+        # Esto crea una ventana modal que no se cierra haciendo clic fuera
+        with ui.dialog() as loading_dialog, ui.card().classes('items-center'):
+            ui.spinner(size='lg', type='dots') # Puedes usar 'dots', 'box', 'audio', etc.
+            ui.label(f'Procesando con {backend}...').classes('text-lg mt-2')
+            ui.label('Por favor no cierres la ventana').classes('text-sm text-gray-500')
+        
+        # Abrimos el diálogo
+        loading_dialog.open()
+        
+        result = None
+        
+        try:
+            # 2. PROCESAMIENTO (Dentro de un try para capturar errores)
+            
+            # Para backends de un solo archivo
+            if backend in ["Keyter", "iPro", "Cefa"]:
+                filename = ui_controller.uploaded_file_names[-1] if ui_controller.uploaded_file_names else "desconocido"
+                result = await unified_process_file(backend, filename, file_bytes)
 
-        # Para Dixell que usa múltiples archivos
-        elif backend == "Dixell":
-            filenames = ui_controller.uploaded_file_names
-            return unified_process_file(backend, filenames, file_bytes)
+            # Para Dixell (múltiples archivos)
+            elif backend == "Dixell":
+                filenames = ui_controller.uploaded_file_names
+                result = await unified_process_file(backend, filenames, file_bytes)
 
-        else:
-            ui.notify("Backend no reconocido", type="warning")
-            return None
+            else:
+                ui.notify("Backend no reconocido", type="warning")
+
+        except Exception as e:
+            logger.error(f"Error crítico en la UI: {e}")
+            ui.notify("Ocurrió un error inesperado.", type='negative')
+            
+        finally:
+            # 3. CERRAR EL LOADING (Siempre se ejecuta, haya error o no)
+            loading_dialog.close()
+            
+            if result is not None:
+                ui.notify('¡Proceso terminado con éxito!', type='positive')
+        
+        return result
 
     # Crear interfaz con el callback adaptado
     ui_controller = HTMLConverterUI(process_html_callback=process_with_backend)

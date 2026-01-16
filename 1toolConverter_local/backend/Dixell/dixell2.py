@@ -374,7 +374,7 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
 
    # Log para ver qué categorías existen realmente antes de filtrar
-    logger.info(f"Categorías presentes antes de dividir I/O: {df['system_category'].unique()}")
+    #logger.info(f"Categorías presentes antes de dividir I/O: {df['system_category'].unique()}")
 
     # 1. Definir la máscara de la categoría ambigua (usando contains para ser tolerante a espacios/variaciones)
     mask_sys_ambiguous = df["system_category"].astype(str).str.contains("DIGITAL OUTPUT/INPUT", case=False, na=False)
@@ -398,12 +398,12 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     # Asignar DIGITAL_OUTPUT
     df.loc[mask_do & mask_sys_ambiguous, 'system_category'] = 'DIGITAL_OUTPUT'
     moved_do = (mask_do & mask_sys_ambiguous).sum()
-    logger.info(f"{moved_do} filas movidas de DIGITAL OUTPUT/INPUT a DIGITAL_OUTPUT")
+    #logger.info(f"{moved_do} filas movidas de DIGITAL OUTPUT/INPUT a DIGITAL_OUTPUT")
 
     # Asignar DIGITAL_INPUT
     df.loc[mask_di & mask_sys_ambiguous, 'system_category'] = 'DIGITAL_INPUT'
     moved_di = (mask_di & mask_sys_ambiguous).sum()
-    logger.info(f"{moved_di} filas movidas de DIGITAL OUTPUT/INPUT a DIGITAL_INPUT")
+    #logger.info(f"{moved_di} filas movidas de DIGITAL OUTPUT/INPUT a DIGITAL_INPUT")
     # --------------------------------
 
     # --- 4️⃣ Detectar y marcar CONFIG_PARAMETER ---
@@ -651,7 +651,7 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
 # Función principal (robusta)
 # ====================================================
 def process_dixell(pdf_content: bytes) -> pd.DataFrame:
-    logger.info("Procesando archivo PDF (en memoria, usando bytes)...")
+    #logger.info("Procesando archivo PDF (en memoria, usando bytes)...")
 
     try:
         pdf_io = BytesIO(pdf_content)
@@ -693,7 +693,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                                 break
 
                         if encabezado_principal:
-                            logger.info(f"🔹 Encabezado '{encabezado_principal}' detectado en página {num}, tabla {i}")
+                            #logger.info(f"🔹 Encabezado '{encabezado_principal}' detectado en página {num}, tabla {i}")
                             ultima_hoja_valida = encabezado_principal
                             hojas[encabezado_principal] = pd.concat(
                                 [hojas.get(encabezado_principal, pd.DataFrame()), df],
@@ -722,8 +722,8 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
     for nombre, df in hojas.items():
         df_limpio = limpiar_dataframe(df)
         df_limpio = eliminar_filas_vacias_completas(df_limpio)
-        logger.info("\n==== df_final - df_limpio 1====")
-        logger.info(df_limpio.head(10))
+        #logger.info("\n==== df_final - df_limpio 1====")
+        #logger.info(df_limpio.head(10))
 
         # --- Buscar fila de encabezado válido ---
         fila_encabezado_idx = None
@@ -742,8 +742,8 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
         # --- Eliminar filas previas antes del encabezado ---
         if fila_encabezado_idx is not None:
             df_limpio = df_limpio.iloc[fila_encabezado_idx:].reset_index(drop=True)
-            logger.info("\n==== df_final - df_limpio 2====")
-            logger.info(df_limpio.head(10))
+            #logger.info("\n==== df_final - df_limpio 2====")
+            #logger.info(df_limpio.head(10))
 
             # --- Verificar si la primera fila es 'meta' (HEX, DEC, etc.) ---
             if not df_limpio.empty:
@@ -753,7 +753,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                 coincidencias = sum(1 for x in primera_fila if x in palabras_meta)
 
                 if total == 0 or coincidencias >= total * 0.2:
-                    logger.info(f"Eliminando fila 'meta' en hoja '{nombre}' (parece ser encabezado falso tipo HEX)")
+                    #logger.info(f"Eliminando fila 'meta' en hoja '{nombre}' (parece ser encabezado falso tipo HEX)")
                     df_limpio = df_limpio.iloc[1:].reset_index(drop=True)
         else:
             logger.warning(f"No se encontró fila de encabezado válida en hoja '{nombre}'")
@@ -780,14 +780,14 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                     for col in df_copy.columns
                     for alias_list in COLUMNAS_VALIDAS1.values()
                 )
-                logger.info(f"Coincidencias con COLUMNAS_VALIDAS1: {matches1}")
+                #logger.info(f"Coincidencias con COLUMNAS_VALIDAS1: {matches1}")
 
                 matches2 = sum(
                     any(str(col).strip().lower() == a.lower() for a in alias_list)
                     for col in df_copy.columns
                     for alias_list in COLUMNAS_VALIDAS2.values()
                 )
-                logger.info(f"Coincidencias con COLUMNAS_VALIDAS2: {matches2}")
+                #logger.info(f"Coincidencias con COLUMNAS_VALIDAS2: {matches2}")
 
                 if matches1 >= matches2:
                     COLUMNAS_VALIDAS_USAR = COLUMNAS_VALIDAS1
@@ -796,10 +796,10 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                     COLUMNAS_VALIDAS_USAR = COLUMNAS_VALIDAS2
                     COLUMN_MAPPING_USAR = COLUMN_MAPPING2
 
-                logger.info("\n==== df_final - Se usara el ====")
-                logger.info(COLUMN_MAPPING_USAR)
-                logger.info("\n==== df_final - Se usara con las ====")
-                logger.info(COLUMNAS_VALIDAS_USAR)
+                #logger.info("\n==== df_final - Se usara el ====")
+                #logger.info(COLUMN_MAPPING_USAR)
+                #logger.info("\n==== df_final - Se usara con las ====")
+                #logger.info(COLUMNAS_VALIDAS_USAR)
 
                 # 🔹 Normalizar columnas
                 columnas_nuevas = []
@@ -825,18 +825,18 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
 
                 # 🔹 Reordenar columnas
                 df_copy = df_copy[list(COLUMNAS_VALIDAS_USAR.keys())]
-                logger.info(f"🔍 COLUMN_MAPPING_USAR aplicado: {COLUMN_MAPPING_USAR}")
+                #logger.info(f"🔍 COLUMN_MAPPING_USAR aplicado: {COLUMN_MAPPING_USAR}")
                 df_copy.insert(0, "system_category", nombre)
                 todas.append(df_copy)
-                logger.info("\n==== df_COPY ====")
-                logger.info(f"Columnas detectadas: {list(df_copy.columns)}")
-                logger.info(df_copy.head(10).to_string())
+                #logger.info("\n==== df_COPY ====")
+                #logger.info(f"Columnas detectadas: {list(df_copy.columns)}")
+                #logger.info(df_copy.head(10).to_string())
 
         if todas:
             df_final = pd.concat(todas, ignore_index=True)
-            logger.info("\n==== df_final - 1====")
-            logger.info(f"Columnas detectadas: {list(df_final.columns)}")
-            logger.info(df_final.head(10).to_string())
+            #logger.info("\n==== df_final - 1====")
+            #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
+            #logger.info(df_final.head(10).to_string())
 
 
             # 🔹 Combinar "Read Register" y "Write Register" correctamente
@@ -850,9 +850,9 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), reg_vals)
             df_final["register"] = df_final["register"].mask(df_final["register"].eq(""), rh_vals)
 
-            logger.info("\n==== df_final - 2====")
-            logger.info(f"Columnas detectadas: {list(df_final.columns)}")
-            logger.info(df_final.head(10).to_string())
+            #logger.info("\n==== df_final - 2====")
+            #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
+            #logger.info(df_final.head(10).to_string())
 
             # Copiar las demás columnas según el mapeo
             for col_origen, col_destino in COLUMN_MAPPING_USAR.items():
@@ -863,19 +863,19 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             for col in LIBRARY_COLUMNS:
                 if col not in df_final.columns:
                     df_final[col] = DEFAULT_VALUES.get(col, "")
-            logger.info("\n==== df_final - 3====")
-            logger.info(f"Columnas detectadas: {list(df_final.columns)}")
-            logger.info(df_final.head(10).to_string())
+            #logger.info("\n==== df_final - 3====")
+            #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
+            #logger.info(df_final.head(10).to_string())
 
             # 🔹 Eliminar filas sin 'register' ni 'name'
             df_final = df_final[
                 ~((df_final["register"].fillna("").astype(str).str.strip() == "") &
                   (df_final["name"].fillna("").astype(str).str.strip() == ""))
             ].reset_index(drop=True)
-            logger.info("\n==== df_final - 3.5====")
-            logger.info("\n==== df_COPY 3.5 ====")
-            logger.info(f"Columnas detectadas: {list(df_final.columns)}")
-            logger.info(df_final.head(10).to_string())
+            #logger.info("\n==== df_final - 3.5====")
+            #logger.info("\n==== df_COPY 3.5 ====")
+            #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
+            #logger.info(df_final.head(10).to_string())
 
             # 🔹 Convertir 'register' y 'value' a decimal
             if "register" in df_final.columns:
@@ -908,14 +908,14 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             #df_final = _apply_localization(df_final)
   
 
-            logger.info("\n==== df_final - 4====")
-            logger.info(f"Columnas detectadas: {list(df_final.columns)}")
-            logger.info(df_final.head(10).to_string())
+            #logger.info("\n==== df_final - 4====")
+            #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
+            #logger.info(df_final.head(10).to_string())
 
             df_final = df_final[LIBRARY_COLUMNS]
-            logger.info("\n==== df_final - 5====")
-            logger.info(f"Columnas detectadas: {list(df_final.columns)}")
-            logger.info(df_final.head(10).to_string())
+            #logger.info("\n==== df_final - 5====")
+            #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
+            #logger.info(df_final.head(10).to_string())
 
             # 🔹 Limpiar filas vacías y categorías no deseadas
             df_final = df_final[df_final["register"].fillna("").astype(str).str.strip() != ""]
@@ -977,12 +977,12 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             df_final = _apply_range_rules(df_final)
             df_final["value"] = df_final["value"].replace("", 0)
 
-            logger.info("\n==== df_final - 6====")
-            logger.info(f"Columnas detectadas: {list(df_final.columns)}")
-            logger.info(df_final.head(10).to_string())
+            #logger.info("\n==== df_final - 6====")
+            #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
+            #logger.info(df_final.head(10).to_string())
 
-    logger.info(f"✅ Total filas finales: {len(df_final)}")
-    logger.info(f"==== DESCRIPCIÓN DEL PDF ====\n\n" + "\n".join(descripcion))
+    #logger.info(f"✅ Total filas finales: {len(df_final)}")
+    #logger.info(f"==== DESCRIPCIÓN DEL PDF ====\n\n" + "\n".join(descripcion))
 
     return df_final
 
@@ -996,16 +996,16 @@ def process_multiple_pdfs(pdf_contents: list, salida_excel: str = "tablas_extrai
     """
     resultados = []
 
-    logger.info(f"📥 Recibidos {len(pdf_contents)} elementos para procesar")
+    #logger.info(f"📥 Recibidos {len(pdf_contents)} elementos para procesar")
 
     for i, pdf_content in enumerate(pdf_contents, start=1):
-        logger.info(f"🔍 Elemento {i}: tipo {type(pdf_content).__name__}")
+        #logger.info(f"🔍 Elemento {i}: tipo {type(pdf_content).__name__}")
 
         if not isinstance(pdf_content, (bytes, bytearray)):
             logger.warning(f"⚠️ El elemento {i} no es bytes, se omitirá")
             continue
 
-        logger.info(f"🔹 Procesando archivo {i} ({len(pdf_content)} bytes)")
+        #logger.info(f"🔹 Procesando archivo {i} ({len(pdf_content)} bytes)")
         df_temp = process_dixell(pdf_content)
         if df_temp is None:
             logger.warning(f"❌ process_dixell devolvió None para el elemento {i}")
@@ -1021,7 +1021,7 @@ def process_multiple_pdfs(pdf_contents: list, salida_excel: str = "tablas_extrai
 
         try:
             df_concat.to_excel(salida_excel, index=False)
-            logger.info(f"✅ Archivos concatenados guardados en {salida_excel}")
+            #logger.info(f"✅ Archivos concatenados guardados en {salida_excel}")
         except Exception as e:
             logger.warning(f"No se pudo guardar el Excel: {e}")
         return df_concat

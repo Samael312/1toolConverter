@@ -36,7 +36,8 @@ class HTMLConverterUI:
 
         # Componentes UI
         self.backend_selector = None   
-        self.upload_component = None   
+        self.upload_component = None
+        self.error_label = None   
         self.process_button = None
         self.table = None
         self.table_card = None
@@ -90,7 +91,7 @@ class HTMLConverterUI:
             logger.error(f"Error al cargar archivo: {ex}", exc_info=True)
             ui.notify(f"Error al cargar archivo: {ex}", type='negative')
 
-    def process_file(self, e):
+    async def process_file(self, e):
         """Procesa el archivo cargado con el backend seleccionado."""
         if not self.uploaded_file_contents:
             ui.notify("No hay archivo para procesar.", type='negative')
@@ -117,68 +118,87 @@ class HTMLConverterUI:
         if self.download_button:
             self.download_button.disable()
 
-        # Llamar al backend correcto
-        if self.backend_selected == "Dixell":
-            df = self.process_html_callback(self.uploaded_file_contents)
-        else:
-            df = self.process_html_callback(self.uploaded_file_contents[-1])
+        try:
+            # Llamar al backend correcto
+            if self.backend_selected == "Dixell":
+                df = await self.process_html_callback(self.uploaded_file_contents)
+            else:
+                df = await self.process_html_callback(self.uploaded_file_contents[-1])
 
-        if df is not None and not df.empty:
-            self.processed_data = df
-            self.display_table()
-            self.update_group_table()
-            if self.download_button:
-                self.download_button.enable()
+            if df is not None and not df.empty:
+                self.processed_data = df
+                self.display_table()
+                self.update_group_table()
+                if self.download_button:
+                    self.download_button.enable()
 
-            # --- Detectar filas ya clasificadas ---
-            valid_groups1 = [
-                'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
-                'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS',
-                'SYSTEM'
-            ]
+                # --- Detectar filas ya clasificadas ---
+                valid_groups1 = [
+                    'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
+                    'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS',
+                    'SYSTEM'
+                ]
 
-            valid_groups2 = ['basic', 'primary']
+                valid_groups2 = ['basic', 'primary']
 
-            auto_grouped1 = df[df['system_category'].isin(valid_groups1)]
-            auto_grouped2 = df[df['view'].isin(valid_groups2)]
-            combined_grouped = pd.concat([auto_grouped1, auto_grouped2]).drop_duplicates()
+                auto_grouped1 = df[df['system_category'].isin(valid_groups1)]
+                auto_grouped2 = df[df['view'].isin(valid_groups2)]
+                combined_grouped = pd.concat([auto_grouped1, auto_grouped2]).drop_duplicates()
 
-            if not combined_grouped.empty:
-                self.grouped_data = combined_grouped.reset_index(drop=True)
-                ui.notify(
-                    f"{len(combined_grouped)} variables clasificadas detectadas automáticamente.",
-                    type='positive',
-                    timeout=2.5
-                )
+                if not combined_grouped.empty:
+                    self.grouped_data = combined_grouped.reset_index(drop=True)
+                    ui.notify(
+                        f"{len(combined_grouped)} variables clasificadas detectadas automáticamente.",
+                        type='positive',
+                        timeout=2.5
+                    )
 
-            ui.notify(f"{len(df)} parámetros procesados.", type='positive')
-            self.display_table()
-            self.update_group_table()
-        else:
-            self.processed_data = None
-            ui.notify("No se obtuvieron datos del procesamiento.", type='warning')
-            if self.download_button:
-                self.download_button.disable()
-        
+                ui.notify(f"{len(df)} parámetros procesados.", type='positive')
+                self.display_table()
+                self.update_group_table()
+            else:
+                self.processed_data = None
+                ui.notify("No se obtuvieron datos del procesamiento.", type='warning')
+                if self.download_button:
+                    self.download_button.disable()
+
+            if df is not None:
         # Convertir DataFrame a lista de diccionarios
-            rows = df.to_dict(orient='records')
+                rows = df.to_dict(orient='records')
 
-            # Cargar filas en la tabla
-            self.load_rows(rows)
+                # Cargar filas en la tabla
+                self.load_rows(rows)
 
-            # Marcar errores
-            for row in self.table.rows:
-                descripcion = row.get("description", "")
-                resultado = self.validate_description_e(descripcion)
-                row["error_flag"] = "Error" if resultado is not True else ""
+                # Marcar errores
+                for row in self.table.rows:
+                    descripcion = row.get("description", "")
+                    resultado = self.validate_description_e(descripcion)
+                    row["error_flag"] = "Error" if resultado is not True else ""
 
-            # Actualizar contador de errores
-            error_count = sum(1 for r in self.table.rows if r.get("error_flag") == "Error")
-            self.error_label.set_text(f"Errores: {error_count}")
-            self.filter_button.set_text(f"Errores: {error_count}")
+                # Actualizar contador de errores
+                error_count = sum(1 for r in self.table.rows if r.get("error_flag") == "Error")
 
-            # Refrescar tabla
-            self.table.update()
+                
+                # Actualizar Label de Errores (si existe)
+                if hasattr(self, 'error_label') and self.error_label is not None:
+                    self.error_label.set_text(f"Errores: {error_count}")
+
+                # Actualizar Botón de Filtros (si existe)
+                if hasattr(self, 'filter_button') and self.filter_button is not None:
+                    self.filter_button.set_text(f"Errores: {error_count}")
+                    # Opcional: Cambiar color visualmente
+                    if error_count > 0:
+                        self.filter_button.props('color=red')
+                    else:
+                        self.filter_button.props('color=primary')
+
+                # Actualizar la tabla finalmente
+                if self.table:
+                    self.table.update()
+        
+        except Exception as ex:
+            logger.error(f"Error en process_file: {ex}", exc_info=True)
+            ui.notify(f"Error procesando el archivo: {ex}", type='negative')
     
     def load_rows(self, rows):
         for r in rows:
@@ -369,6 +389,7 @@ class HTMLConverterUI:
                 ui.separator().classes('mb-6')
                 
                 with ui.row().classes('items-center gap-4'):
+                    
                     self.backend_selector = ui.select(
                         options=['Keyter', 'iPro', 'Cefa', 'Dixell'],
                         label='Selecciona Backend',
@@ -774,7 +795,7 @@ class HTMLConverterUI:
 
     def update_error_counter(self):
         """Actualiza el botón de contador con el número real de errores."""
-        error_count = sum(r.get("error_flag", 0) for r in self.table.rows)
+        error_count = sum(1 for r in self.table.rows if r.get("error_flag") == "Error")
         if error_count > 0:
             self.download_button.disable()
         else:
