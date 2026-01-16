@@ -5,6 +5,7 @@ Punto de entrada principal y lógica de negocio.
 from nicegui import ui, run  # <--- 1. IMPORTANTE: Importamos run
 import os
 import logging
+import asyncio
 from backend.Keyter.KeyterNew import process_excel as keyter_new_process
 from backend.Keyter.Keyter import process_html as keyter_html_process
 from backend.iPro.ipro import convert_excel_to_dataframe as ipro_convert_excel
@@ -91,6 +92,8 @@ def main():
         # Abrimos el diálogo
         loading_dialog.open()
         
+        await asyncio.sleep(0.2)  
+
         result = None
         
         try:
