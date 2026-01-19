@@ -691,20 +691,29 @@ class HTMLConverterUI:
             self.table_card.visible = False
 
             # Filtros en barra gris claro
-            with ui.row().classes('p-4 gap-4 items-end bg-white'):
+            with ui.row().classes('w-full p-4 gap-4 items-start flex-wrap bg-white'):
+                # 1. Selector de Columna 
                 self.search_column_selector = ui.select(
-                    options=['register', 'name', 'description', 'system_category'], value='name', label='Buscar columna',
+                    options=['register', 'name', 'description', 'system_category'], 
+                    value='name', 
+                    label='Buscar columna',
                     on_change=self.reset_search_input
                 ).props('outlined dense options-dense').classes('w-48')
 
-                self.search_input = ui.input(placeholder='Escribe para buscar...', on_change=self.apply_search_filter
-                ).props('outlined dense clearable').classes('flex-1 min-w-[100px]')
+                # 2. Input de Búsqueda (Flexible)
+                self.search_input = ui.input(
+                    placeholder='Escribe para buscar...', 
+                    on_change=self.apply_search_filter
+                ).props('outlined dense clearable').classes('flex-grow min-w-[200px]')
 
+                # 3. Filtro por Grupo (Flexible y ajustado)
                 self.category_filter = ui.select(
-                    options=['ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND', 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'],
-                    multiple=True, label='Filtrar por grupo', clearable=True, on_change=self.apply_category_filter
-                ).props('outlined dense use-chips clearable').classes('w-full md:w-1/3')
-
+                    options=['ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND', 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM', 'COUNTERS'],
+                    multiple=True, 
+                    label='Filtrar por grupo', 
+                    clearable=True, 
+                    on_change=self.apply_category_filter
+                ).props('outlined dense use-chips clearable').classes('flex-grow min-w-[300px] max-w-md')
             # Tabla
             cols = ["id", "register", "name", "description", "read", "write", "sampling", "minvalue", "maxvalue", "unit", "view", "error_flag"]
             
@@ -715,7 +724,7 @@ class HTMLConverterUI:
                 selection='multiple',
                 pagination=self.pagination_main,
                 on_pagination_change=self.handle_main_pagination,
-            ).classes('w-full').props('flat dense') # Quitamos bordered aquí porque el card ya tiene borde
+            ).classes('w-full').props('flat dense') 
 
             self.table.on('selection', self.handle_selection)
             self.table.on('openError', self.handle_error_click)
@@ -842,16 +851,21 @@ class HTMLConverterUI:
             self.group_table_card.visible = False
 
             # Filtros
-            with ui.row().classes('p-4 gap-4 bg-white'):
+            with ui.row().classes('w-full p-4 gap-4 items-start flex-wrap bg-white'):
+
                 self.group_search_column_selector = ui.select(
                     options=['register', 'name', 'description', 'system_category'], value='name', label='Buscar columna',
                     on_change=self.reset_group_search_input
-                ).props('outlined dense').classes('w-48')
-                self.group_search_input = ui.input(placeholder='Buscar...', on_change=self.apply_group_search_filter).props('outlined dense clearable').classes('flex-1')
+                ).props('outlined dense options-dense').classes('w-48')
+
+                self.group_search_input = ui.input(
+                    placeholder='Buscar...', 
+                    on_change=self.apply_group_search_filter).props('outlined dense clearable').classes('flex-grow min-w-[200px]')
+                
                 self.group_category_filter = ui.select(
                     options=['ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND', 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM'],
-                    multiple=True, label='Filtrar grupos', clearable=True, on_change=self.apply_group_category_filter
-                ).props('outlined dense use-chips').classes('w-1/3')
+                    multiple=True, label='Filtrar por grupos', clearable=True, on_change=self.apply_group_category_filter
+                ).props('outlined dense use-chips clearable').classes('flex-grow min-w-[300px] max-w-md')
 
             self.group_table = ui.table(
                 columns=[], rows=[], row_key='id', selection='multiple',
