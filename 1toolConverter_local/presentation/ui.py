@@ -92,25 +92,35 @@ class HTMLConverterUI:
             ui.notify(f"Error al cargar archivo: {ex}", type='negative')
 
     async def process_file(self, e):
-        """Procesa el archivo cargado con el backend seleccionado."""
+        """
+        Procesa el archivo cargado.
+        Flujo corregido: Carga -> Calcula Errores -> Actualiza Botón -> Muestra Tabla.
+        """
         if not self.uploaded_file_contents:
             ui.notify("No hay archivo para procesar.", type='negative')
             return
 
-        # Reiniciar tablas y datos previos
+        # ---------------------------------------------------------
+        # 1. REINICIO COMPLETO DEL ESTADO
+        # ---------------------------------------------------------
         self.processed_data = None
         self.grouped_data = pd.DataFrame()
         self.selected_rows = []
         self.selected_group_rows = []
+        
+        # Limpiar inputs de búsqueda
         self.reset_search_input(e)
         self.reset_group_search_input(e)
 
+        # Limpiar Tablas Visuales
         if self.table:
             self.table.rows = []
             self.table.update()
         if self.group_table:
             self.group_table.rows = []
             self.group_table.update()
+            
+        # Ocultar tarjetas y deshabilitar descarga
         if self.table_card:
             self.table_card.visible = False
         if self.group_table_card:
@@ -119,86 +129,88 @@ class HTMLConverterUI:
             self.download_button.disable()
 
         try:
-            # Llamar al backend correcto
+            # ---------------------------------------------------------
+            # 2. OBTENER DATOS DEL BACKEND
+            # ---------------------------------------------------------
             if self.backend_selected == "Dixell":
                 df = await self.process_html_callback(self.uploaded_file_contents)
             else:
                 df = await self.process_html_callback(self.uploaded_file_contents[-1])
 
+            # ---------------------------------------------------------
+            # 3. PROCESAMIENTO DE DATOS Y ERRORES
+            # ---------------------------------------------------------
             if df is not None and not df.empty:
                 self.processed_data = df
-                self.display_table()
-                self.update_group_table()
-                if self.download_button:
-                    self.download_button.enable()
 
-                # --- Detectar filas ya clasificadas ---
+                # 🔥 PASO CRÍTICO: Validar errores en todo el DataFrame AHORA
+                # Creamos la columna 'error_flag' (1 = Error, 0 = OK)
+                self.processed_data['error_flag'] = self.processed_data['description'].apply(
+                    lambda desc: 1 if self.validate_description_e(desc) is not True else 0
+                )
+
+                # 🔥 Contar errores inmediatamente
+                error_count = self.processed_data['error_flag'].sum()
+
+                # 🔥 Actualizar el Botón de Errores ANTES de mostrar la tabla
+                if hasattr(self, 'error_button'):
+                    self.error_button.text = f"Errores: {error_count}"
+                    
+                    if error_count > 0:
+                        # Rojo si hay errores
+                        self.error_button.props('color=negative outline icon=warning')
+                    else:
+                        # Verde si todo está limpio
+                        self.error_button.props('color=positive flat icon=check_circle')
+
+                # ---------------------------------------------------------
+                # 4. CLASIFICACIÓN AUTOMÁTICA (GRUPOS)
+                # ---------------------------------------------------------
                 valid_groups1 = [
                     'ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND',
                     'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS',
                     'SYSTEM'
                 ]
-
                 valid_groups2 = ['basic', 'primary']
 
+                # Filtrar subconjuntos
                 auto_grouped1 = df[df['system_category'].isin(valid_groups1)]
                 auto_grouped2 = df[df['view'].isin(valid_groups2)]
+                
+                # Unir y eliminar duplicados
                 combined_grouped = pd.concat([auto_grouped1, auto_grouped2]).drop_duplicates()
 
                 if not combined_grouped.empty:
                     self.grouped_data = combined_grouped.reset_index(drop=True)
                     ui.notify(
-                        f"{len(combined_grouped)} variables clasificadas detectadas automáticamente.",
-                        type='positive',
+                        f"{len(combined_grouped)} variables clasificadas automáticamente.", 
+                        type='positive', 
                         timeout=2.5
                     )
 
-                ui.notify(f"{len(df)} parámetros procesados.", type='positive')
+                # ---------------------------------------------------------
+                # 5. ACTUALIZAR INTERFAZ FINAL
+                # ---------------------------------------------------------
+                # Habilitar descarga
+                if self.download_button:
+                    self.download_button.enable()
+
+                # Mostrar las tablas (Leerán self.processed_data que YA tiene los errores marcados)
                 self.display_table()
                 self.update_group_table()
-            else:
-                self.processed_data = None
-                ui.notify("No se obtuvieron datos del procesamiento.", type='warning')
-                if self.download_button:
-                    self.download_button.disable()
-
-            if df is not None:
-        # Convertir DataFrame a lista de diccionarios
-                rows = df.to_dict(orient='records')
-
-                # Cargar filas en la tabla
-                self.load_rows(rows)
-
-                # Marcar errores
-                for row in self.table.rows:
-                    descripcion = row.get("description", "")
-                    resultado = self.validate_description_e(descripcion)
-                    row["error_flag"] = "Error" if resultado is not True else ""
-
-                # Actualizar contador de errores
-                error_count = sum(1 for r in self.table.rows if r.get("error_flag") == "Error")
-
                 
-                # Actualizar Label de Errores (si existe)
-                if hasattr(self, 'error_label') and self.error_label is not None:
-                    self.error_label.set_text(f"Errores: {error_count}")
+                # Notificación final
+                ui.notify(f"✅ Procesado: {len(df)} filas. Errores detectados: {error_count}", type='positive')
 
-                # Actualizar Botón de Filtros (si existe)
-                if hasattr(self, 'filter_button') and self.filter_button is not None:
-                    self.filter_button.set_text(f"Errores: {error_count}")
-                    # Opcional: Cambiar color visualmente
-                    if error_count > 0:
-                        self.filter_button.props('color=red')
-                    else:
-                        self.filter_button.props('color=primary')
+            else:
+                # Caso DataFrame vacío
+                self.processed_data = None
+                ui.notify("⚠️ El archivo no contiene datos válidos.", type='warning')
 
-                # Actualizar la tabla finalmente
-                if self.table:
-                    self.table.update()
-        
         except Exception as ex:
-            logger.error(f"Error en process_file: {ex}", exc_info=True)
-            ui.notify(f"Error procesando el archivo: {ex}", type='negative')
+            import traceback
+            logger.error(f"❌ Error crítico en process_file:\n{traceback.format_exc()}")
+            ui.notify(f"Error procesando el archivo: {str(ex)}", type='negative')
     
     def load_rows(self, rows):
         for r in rows:
@@ -797,9 +809,8 @@ class HTMLConverterUI:
                     self.clear_table_button = ui.button('Limpiar Todo', on_click=self.clear_main_table).props('outline color=warning icon=delete_forever')
                     
                     self.delete_rows_button = ui.button('Eliminar Selección', on_click=self.deleted_selected_rows).props('outline color=negative icon=delete')
-
+                    ui.button('Descargar Errores', on_click=self.download_errors_excel).props('outline color=negative icon=bug_report')
                     ui.button('Agregar Fila Manual', on_click=self.add_new_row).props('outline color=secondary icon=add')
-
                     ui.button('Generar Mapa', on_click=self.download_variable_map).props('outline color=info icon=map')
                     
                     
@@ -817,40 +828,88 @@ class HTMLConverterUI:
         self.table.update()
 
     def update_error_counter(self):
-        """Actualiza el botón de contador con el número real de errores."""
-        error_count = sum(1 for r in self.table.rows if r.get("error_flag") == "Error")
-        if error_count > 0:
-            self.download_button.disable()
+        """
+        Actualiza el botón de contador calculando directamente desde el DataFrame.
+        """
+        # 1. Protección: Si no hay datos, es 0
+        if self.processed_data is None or self.processed_data.empty:
+            error_count = 0
         else:
-            self.download_button.enable()
+            # 2. Contar directo en Pandas (Más rápido y seguro)
+            
+            if 'error_flag' in self.processed_data.columns:
+              
+                error_count = len(self.processed_data[self.processed_data['error_flag'] == 1])
+                
+            else:
+                error_count = 0
+
+        # 3. Actualizar Botón de Descarga
+        if error_count > 0:
+            if hasattr(self, 'download_button'):
+                self.download_button.disable()
+                self.download_button.tooltip('Corrige los errores antes de descargar')
+        else:
+            if hasattr(self, 'download_button'):
+                self.download_button.enable()
+                self.download_button.tooltip('Descargar archivo procesado')
         
+        # 4. Actualizar Texto del Botón de Errores
         if hasattr(self, "error_button"):
-            self.error_button.set_text(f"Errores: {error_count}")
+            self.error_button.text = f"Errores: {error_count}"
+
     
-    def toggle_error_filter(self, e):
-        """Activa/desactiva el filtro de errores."""
+    def toggle_error_filter(self, e=None):
+        """
+        Activa/desactiva el filtro de errores.
+        CORRECCIÓN: Siempre filtra desde self.processed_data (Fuente de Verdad), 
+        nunca desde self.table.rows (Vista actual).
+        """
+        # 1. Protección inicial
+        if self.processed_data is None or self.processed_data.empty:
+            ui.notify("No hay datos para filtrar", type='warning')
+            return
+
         self.error_filter_active = not self.error_filter_active
 
-        if self.error_filter_active:
-            # 🔥 FILTRAR SOLO ERRORES
-            filtered = [r for r in self.table.rows if r.get("error_flag", 0) == 1]
-            self.table.rows = filtered
+        # 2. Preparamos TODOS los datos base frescos desde el DataFrame
+        # Convertimos todo a lista de diccionarios primero
+        df_display = self.processed_data.copy()
+        all_rows = df_display.replace({np.nan: ''}).to_dict('records')
+        
+        # IMPORTANTE: Aseguramos que los flags de error estén calculados en TODOS los datos
+        # antes de filtrar. (Asumiendo que mark_error_flags añade 'error_flag')
+        all_rows = self.mark_error_flags(all_rows)
 
-            # Cambiar a rojo oscuro
-            self.error_button.props("color=positive")
+        if self.error_filter_active:
+            # 🔥 CASO ACTIVO: Filtramos sobre la lista completa recién generada
+            filtered_rows = [r for r in all_rows if r.get("error_flag") == 1]
+            
+            self.table.rows = filtered_rows
+            
+            # Estética: Botón "Presionado/Activo"
+            if hasattr(self, 'error_button'):
+                self.error_button.props("color=positive icon=filter_alt_off")
+                self.error_button.text = 'Ver Todo'
+            
+            ui.notify(f"🔴 Filtro activado: {len(filtered_rows)} errores visibles.", type='warning')
 
         else:
-            # 🔥 Restaurar todas las filas desde processed_data
-            df_display = self.processed_data.copy()
-            rows = df_display.replace({np.nan: ''}).to_dict('records')
-            rows = self.mark_error_flags(rows)
+            # 📋 CASO INACTIVO: Mostramos la lista completa
+            self.table.rows = all_rows
 
-            self.table.rows = rows
+            # Estética: Botón "Normal/Inactivo"
+            if hasattr(self, 'error_button'):
+                self.error_button.props("color=negative outline icon=filter_alt")
+                self.error_button.text = 'Filtrar Errores'
+            
+            ui.notify("Mostrando todos los registros.", type='info')
 
-            # Rojo normal
-            self.error_button.props("color=negative outlined")
-
+        # 3. Actualizamos UI final
         self.update_error_counter()
+        
+        # Limpiamos selección para evitar crashes si la fila seleccionada desaparece
+        self.table.selected = [] 
         self.table.update()
 
 
@@ -1761,3 +1820,43 @@ class HTMLConverterUI:
             import traceback
             logger.error(f"❌ Error al abrir diálogo de mapa:\n{traceback.format_exc()}")
             ui.notify(f"Error sistema: {ex}", type='negative')
+    
+
+    async def download_errors_excel(self):
+        """Descarga un Excel conteniendo únicamente las filas con errores."""
+        if self.processed_data is None or self.processed_data.empty:
+            ui.notify("No hay datos para procesar", type='warning')
+            return
+
+        # Filtrar solo las filas que tienen error (1)
+        # Asumiendo que 'error_flag' ya fue calculado en process_file
+        if 'error_flag' not in self.processed_data.columns:
+            ui.notify("No se han calculado los errores aún.", type='warning')
+            return
+
+        df_errors = self.processed_data[self.processed_data['error_flag'] == 1].copy()
+
+        if df_errors.empty:
+            ui.notify("¡Genial! No hay errores para descargar. 🎉", type='positive')
+            return
+
+        try:
+            # Generar archivo temporal
+            with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                temp_path = tmp.name
+                # Escribir Excel
+                with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+                    df_errors.to_excel(writer, index=False, sheet_name='Errores')
+            
+            # Descargar
+            ui.download(temp_path, filename="Reporte_Errores.xlsx")
+            ui.notify(f"Descargando {len(df_errors)} errores...", type='negative')
+
+            # Limpieza del archivo temporal después de unos segundos
+            await asyncio.sleep(10)
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+        except Exception as e:
+            logger.error(f"Error descargando errores: {e}")
+            ui.notify(f"Error al generar el Excel: {str(e)}", type='negative')
