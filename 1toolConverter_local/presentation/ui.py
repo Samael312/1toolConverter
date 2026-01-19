@@ -777,18 +777,32 @@ class HTMLConverterUI:
             self.add_editable_slot('name', 'Nombre', style_overrides={'min-width': '150px'})
 
             # --- Panel de Acciones en Lote (Pie de tabla) ---
-            with ui.row().classes('p-4 bg-slate-50 border-t border-slate-200 gap-4 items-center justify-between'):
+            with ui.row().classes('w-full p-4 border-t gap-4 items-center justify-between'):
+
+                # --- IZQUIERDA: Acciones sobre la Selección ---
                 with ui.row().classes('items-center gap-3'):
                     self.group_selector = ui.select(
                         options=['ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND', 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'STATUS', 'SYSTEM'],
                         label='Asignar Grupo a Selección'
-                    ).props('outlined dense options-dense behavior="menu"').classes('w-64 bg-white')
+                    ).props('outlined dense options-dense behavior="menu"').classes('w-64')
                     
                     self.assign_button = ui.button('Asignar', on_click=self.assign_group_to_selection).props('unelevated color=primary icon=low_priority')
-                
-                ui.button('Agregar Fila Manual', on_click=self.add_new_row).props('outline color=secondary icon=add')
-                ui.button('Generar Mapa de Variables', on_click=self.download_variable_map).props('outline color=info icon=map')
+                    
+                    
 
+                # --- DERECHA: Acciones Globales (Agregar, Mapa, Limpiar Todo) ---
+                with ui.row().classes('items-center gap-3'):
+
+                    # He movido "Limpiar Todo" aquí porque es una acción global, no de selección
+                    self.clear_table_button = ui.button('Limpiar Todo', on_click=self.clear_main_table).props('outline color=warning icon=delete_forever')
+                    
+                    self.delete_rows_button = ui.button('Eliminar Selección', on_click=self.deleted_selected_rows).props('outline color=negative icon=delete')
+
+                    ui.button('Agregar Fila Manual', on_click=self.add_new_row).props('outline color=secondary icon=add')
+
+                    ui.button('Generar Mapa', on_click=self.download_variable_map).props('outline color=info icon=map')
+                    
+                    
         self.table.on('click', lambda e: logger.info("✅ Evento click detectado en tabla"))
 
     def load_rows(self, rows):
@@ -876,8 +890,8 @@ class HTMLConverterUI:
             # Footer con acciones
             with ui.row().classes('p-4 bg-slate-50 border-t border-slate-200 justify-between items-center'):
                 with ui.row().classes('gap-2'):
-                    self.delete_rows_button = ui.button('Eliminar Selección', on_click=self.delete_selected_group_rows).props('outline color=negative icon=delete')
-                    self.clear_table_button = ui.button('Limpiar Todo', on_click=self.clear_group_table).props('flat color=warning icon=delete_forever')
+                    self.delete_rows_button = ui.button('Eliminar Selección', on_click=self.deleted_selected_rows).props('outline color=negative icon=delete')
+                    self.clear_table_button = ui.button('Limpiar Todo', on_click=self.clear_group_table).props('outline color=warning icon=delete_forever')
                 
                 self.download_button = ui.button('Descargar Excel Final', on_click=self.download_excel).props('unelevated color=positive icon=download size=md').classes('px-6 shadow-md')
                 self.download_button.disable()
@@ -1040,50 +1054,106 @@ class HTMLConverterUI:
             ui.notify(f"Error al asignar grupo: {ex}", type='negative')
 
 
-    def delete_selected_group_rows(self):
-        if not self.selected_group_rows:
-            ui.notify('Selecciona una o más filas para eliminar.', type='warning')
-            return
+    async def deleted_selected_rows(self):
+        """
+        Lógica de borrado UNIDIRECCIONAL:
+        1. Selección en Main -> Borra en Main Y en Group.
+        2. Selección en Group -> Borra SOLO en Group (Main se mantiene intacto).
+        """
+        ROW_KEY = 'name' # ⚠️ Asegúrate que este sea tu identificador único (ej. 'name', 'register')
+        
+        logger.info("🗑️ Iniciando borrado inteligente...")
+        ids_from_main = set()
+        ids_from_group = set()
+        rows_deleted = 0
 
-        try:
-            before_count = len(self.grouped_data)
+        # --- 1. PROCESAR SELECCIÓN DE TABLA PRINCIPAL (MAIN) ---
+        # Regla: Lo que se borra aquí, desaparece de AMBOS lados.
+        if hasattr(self, 'table') and self.table.selected:
+            # Capturamos IDs
+            ids_from_main = {row.get(ROW_KEY) for row in self.table.selected if row.get(ROW_KEY)}
             
-            # Convertir la selección a strings (por si acaso)
-            ids_to_delete = [str(i) for i in self.selected_group_rows]
+            if ids_from_main:
+                # A. Borrar de Main Data
+                if self.processed_data is not None:
+                    self.processed_data = self.processed_data[~self.processed_data[ROW_KEY].isin(ids_from_main)]
+                
+                # B. Borrar de Main UI
+                self.table.rows = [r for r in self.table.rows if r.get(ROW_KEY) not in ids_from_main]
+                self.table.selected = [] # Limpiar selección
+                self.table.update()
+                
+                rows_deleted += len(ids_from_main)
+                logger.info(f"Main: Borradas {len(ids_from_main)} filas (se replicará en grupos).")
 
-            # Filtrar filas que NO están seleccionadas
-            self.grouped_data = self.grouped_data[~self.grouped_data['id'].astype(str).isin(ids_to_delete)]
+        # --- 2. PROCESAR SELECCIÓN DE TABLA GRUPOS (GROUP) ---
+        # Regla: Lo que se borra aquí, SOLO desaparece de aquí.
+        if hasattr(self, 'group_table') and self.group_table.selected:
+            # Capturamos IDs seleccionados explícitamente en el grupo
+            ids_from_group = {row.get(ROW_KEY) for row in self.group_table.selected if row.get(ROW_KEY)}
+
+        # --- 3. SINCRONIZACIÓN FINAL ---
+        # Unimos: (IDs borrados en Main porque deben borrarse abajo) + (IDs borrados manualmente en Grupo)
+        all_ids_to_remove_from_group = ids_from_main.union(ids_from_group)
+
+        if all_ids_to_remove_from_group:
+            # A. Borrar de Group Data
+            if self.grouped_data is not None and not self.grouped_data.empty:
+                initial_len = len(self.grouped_data)
+                self.grouped_data = self.grouped_data[~self.grouped_data[ROW_KEY].isin(all_ids_to_remove_from_group)]
+                
+                # Log para verificar que solo se borró en grupo lo que debía
+                logger.info(f"Group: Se eliminaron {initial_len - len(self.grouped_data)} filas.")
+
+            # B. Borrar de Group UI
+            if hasattr(self, 'group_table'):
+                self.group_table.rows = [r for r in self.group_table.rows if r.get(ROW_KEY) not in all_ids_to_remove_from_group]
+                self.group_table.selected = []
+                self.group_table.update()
             
-            # Reiniciar índice
-            self.grouped_data.reset_index(drop=True, inplace=True)
-            
-            # Limpiar selección antes de actualizar la tabla
-            self.selected_group_rows.clear()
-            
-            # Actualizar tabla
-            self.update_group_table()
-            self.display_table()
-            
-            after_count = len(self.grouped_data)
-            deleted = before_count - after_count
-            
-            ui.notify(f'Se eliminaron {deleted} fila(s).', type='positive')
-       
-        except Exception as ex:
-            logger.exception(f"Error al eliminar filas: {ex}")
-            ui.notify(f"Error al eliminar filas: {ex}", type='negative')
+            rows_deleted += len(ids_from_group)
+
+        # Feedback
+        if rows_deleted > 0:
+            ui.notify(f"🗑️ Proceso completado. Filas gestionadas.", type='info')
+        else:
+            ui.notify("⚠️ No hay filas seleccionadas.", type='warning')
+
+
+    def clear_main_table(self):
+        """Limpia SOLO la tabla principal con logs."""
+        logger.info("🧹 Solicitud de limpieza: Tabla Principal")
+        
+        if hasattr(self, 'table'):
+            prev_count = len(self.table.rows)
+            self.table.rows = []
+            self.table.selected = []
+            self.table.update()
+            logger.info(f"UI Tabla Principal limpiada (tenía {prev_count} filas).")
+        else:
+            logger.error("No se encontró self.table para limpiar.")
+        
+        self.processed_data = pd.DataFrame()
+        logger.info("DataFrame 'processed_data' reseteado a vacío.")
+        ui.notify("🧹 Tabla Principal limpiada.", type='positive')
 
 
     def clear_group_table(self):
-        try:
-            count = len(self.grouped_data)
-            self.grouped_data = pd.DataFrame()
-            self.update_group_table()
-            self.display_table()
-            ui.notify(f'Tabla vaciada ({count} filas eliminadas).', type='info')
-        except Exception as ex:
-            logger.exception(f"Error al limpiar tabla: {ex}")
-            ui.notify(f"Error al limpiar tabla: {ex}", type='negative')
+        """Limpia SOLO la tabla de grupos con logs."""
+        logger.info("🧹 Solicitud de limpieza: Tabla de Grupos")
+        
+        if hasattr(self, 'group_table'):
+            prev_count = len(self.group_table.rows)
+            self.group_table.rows = []
+            self.group_table.selected = []
+            self.group_table.update()
+            logger.info(f"UI Tabla de Grupos limpiada (tenía {prev_count} filas).")
+        else:
+            logger.error("No se encontró self.group_table para limpiar.")
+        
+        self.grouped_data = pd.DataFrame()
+        logger.info("DataFrame 'grouped_data' reseteado a vacío.")
+        ui.notify("🧹 Tabla de Grupos limpiada.", type='positive')
 
     def update_group_table(self):
         if self.group_table is None:
@@ -1621,9 +1691,9 @@ class HTMLConverterUI:
             ui.notify(f"Error al agregar nueva fila: {ex}", type='negative')
 
     def download_variable_map(self):
-        """Genera y descarga un Excel con el mapa de variables (columnas seleccionables por el usuario)."""
+        """Genera y descarga un Excel con el mapa de variables usando un Diálogo Modal."""
         try:
-            # Determinar fuente de datos
+            # 1. Determinar fuente de datos
             df_source = None
             if self.grouped_data is not None and not self.grouped_data.empty:
                 df_source = self.grouped_data
@@ -1633,54 +1703,61 @@ class HTMLConverterUI:
                 ui.notify("⚠️ No hay datos para generar el mapa de variables.", type='warning')
                 return
 
-            # Columnas disponibles
             available_cols = list(df_source.columns)
 
-            # Selector de columnas
-            selected_columns = ui.select(
-                options=available_cols,
-                value=[
-                ],  
-                multiple=True,
-                label="Selecciona las columnas a exportar",
-                with_input=True,
-                clearable=True
-            ).props('outlined dense options-dense behavior="menu"').classes('w-64 bg-white')
+            # 2. Abrir el Diálogo
+            with ui.dialog() as dialog, ui.card().classes('w-96'): # w-96 da un ancho fijo elegante
+                ui.label('Exportar Mapa de Variables').classes('text-h6 font-bold')
+                
+                # Selector dentro del diálogo
+                selected_columns = ui.select(
+                    options=available_cols,
+                    value=[],  # Puedes poner columnas por defecto aquí si quieres
+                    multiple=True,
+                    label="Selecciona columnas",
+                    with_input=True,
+                    clearable=True
+                ).props('outlined dense options-dense use-chips').classes('w-full')
 
-            async def confirmar_exportacion():
-                cols = selected_columns.value
-                if not cols:
-                    ui.notify("⚠️ Debes seleccionar al menos una columna para exportar.", type='warning')
-                    return
+                # Función interna para procesar la descarga
+                async def confirmar_exportacion():
+                    cols = selected_columns.value
+                    if not cols:
+                        ui.notify("⚠️ Selecciona al menos una columna.", type='warning')
+                        return
 
-                missing = [c for c in cols if c not in df_source.columns]
-                if missing:
-                    ui.notify(f"⚠️ Columnas no encontradas en los datos: {', '.join(missing)}", type='warning')
-                    return
+                    # Cerrar el diálogo inmediatamente para limpiar la UI
+                    dialog.close()
 
-                df_export = df_source[cols].copy().replace({None: '', pd.NA: ''})
+                    try:
+                        df_export = df_source[cols].copy().replace({None: '', pd.NA: ''})
+                        
+                        # Crear archivo temporal
+                        with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                            with pd.ExcelWriter(tmp.name, engine="openpyxl") as writer:
+                                df_export.to_excel(writer, sheet_name="Mapa", index=False)
+                            file_path = tmp.name
 
-                # Crear archivo temporal Excel
-                with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-                    with pd.ExcelWriter(tmp.name, engine="openpyxl") as writer:
-                        df_export.to_excel(writer, sheet_name="Mapa de Variables", index=False)
-                    tmp.flush()
-                    file_path = tmp.name
+                        ui.download(file_path, filename="mapa_variables.xlsx")
+                        ui.notify(f"🚀 Descargando {len(cols)} columnas...", type='positive')
 
-                ui.download(file_path, filename="mapa_de_variables.xlsx")
-                ui.notify(f"📗 Descarga iniciada con {len(cols)} columnas seleccionadas.", type='info')
+                        # Limpieza diferida
+                        await asyncio.sleep(60)
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                            
+                    except Exception as e:
+                        ui.notify(f"Error en exportación: {str(e)}", type='negative')
 
-                # Limpieza del archivo temporal
-                async def cleanup_file(path):
-                    await asyncio.sleep(60)
-                    if os.path.exists(path):
-                        os.remove(path)
+                # Botones de acción del diálogo (Cancelar / Descargar)
+                with ui.row().classes('w-full justify-end mt-4'):
+                    ui.button('Cancelar', on_click=dialog.close).props('flat color=grey')
+                    ui.button('Descargar Excel', on_click=confirmar_exportacion).props('unelevated color=green icon=download')
 
-                ui.timer(1.0, lambda: asyncio.create_task(cleanup_file(file_path)), once=True)
-
-            ui.button("Descargar Excel", on_click=confirmar_exportacion, color="green").props('unelevated color=positive icon=download size=md').classes('px-6 shadow-md')
+            # Importante: Ejecutar la apertura del diálogo
+            dialog.open()
 
         except Exception as ex:
             import traceback
-            logger.error(f"❌ Error al generar mapa de variables:\n{traceback.format_exc()}")
-            ui.notify(f"Error al generar mapa de variables: {ex}", type='negative')
+            logger.error(f"❌ Error al abrir diálogo de mapa:\n{traceback.format_exc()}")
+            ui.notify(f"Error sistema: {ex}", type='negative')
