@@ -36,3 +36,4 @@ def auto_classify_groups(df: pd.DataFrame) -> pd.DataFrame:
         
         combined = pd.concat([auto_grouped1, auto_grouped2]).drop_duplicates()
         return combined.reset_index(drop=True)
+

@@ -9,17 +9,20 @@ import re
 import os
 import asyncio
 
-logger = logging.getLogger(__name__)
 
-# 1. Importamos los Mixins
 from presentation.mixins.process_mixin import ProcessMixin
 from presentation.mixins.handle_mixin import HandleMixin  
 from presentation.mixins.update_mixin import UpdateMixin     
 from presentation.mixins.filters_mixin import FilterMixin
 from presentation.mixins.functions_mixin import FunctionMixin
+from presentation.mixins.table_mixin import TableMixin
+
+logger = logging.getLogger(__name__)
+
+
 
 # 2. Heredamos de todos ellos
-class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, FunctionMixin):
+class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, FunctionMixin, TableMixin):
     """
     Controlador de la interfaz de usuario para el conversor HTML a Excel.
     Maneja todos los componentes visuales y la interacción con el usuario.
@@ -84,8 +87,13 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
         rows = df_display.replace({np.nan: ''}).to_dict('records')
 
         # 🔹 Marcar errores automáticamente al cargar
-        rows = self.mark_error_flags(rows)
-        self.update_error_counter()
+        rows = self.processed_data.replace({np.nan: ''}).to_dict('records')
+        self.table.rows = rows
+        self.table.update()
+        
+        # Actualizamos contadores visuales
+        if hasattr(self, 'update_error_counter'):
+            self.update_error_counter()
 
 
         for row in rows:

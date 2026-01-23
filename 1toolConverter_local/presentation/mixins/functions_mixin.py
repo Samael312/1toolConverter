@@ -5,9 +5,9 @@ import os
 import asyncio
 from tempfile import NamedTemporaryFile
 import logging
-from backend import validate_description_text 
+from backend.General.logic import validate_description_text, calculate_errors
 
-from presentation import ui
+from nicegui import ui
 
 logger = logging.getLogger(__name__)
 

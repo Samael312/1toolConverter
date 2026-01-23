@@ -8,7 +8,7 @@ from tempfile import NamedTemporaryFile
 import re
 import os
 import asyncio
-from backend import logic 
+from backend.General import logic
 
 logger = logging.getLogger(__name__)
 
@@ -213,11 +213,15 @@ class ProcessMixin:
                 selected_as_str = [str(x) for x in self.selected_rows]
 
                 # Filtrar filas seleccionadas del DataFrame original
+                self.processed_data.loc[
+                    self.processed_data['id'].astype(str).isin(selected_as_str), 
+                    'system_category'
+                ] = group
+
                 selected_rows_df = self.processed_data.loc[
                     self.processed_data['id'].astype(str).isin(selected_as_str)
                 ].copy()
 
-                # Asignar nuevo grupo
                 selected_rows_df['system_category'] = group
 
                 # Si se asigna STATUS, poner view como basic
