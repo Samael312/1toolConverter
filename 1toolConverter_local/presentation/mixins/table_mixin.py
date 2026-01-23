@@ -30,6 +30,7 @@ class TableMixin:
         # CAMBIO 1: Usamos String() para asegurar que los números (3, 16, 0) tengan .length y pasen el regex
         js_validation = (
             f"props.row.{field_name} !== null && "
+            f"String(props.row.{field_name}).length > 0 && "
             f"String(props.row.{field_name}).length <= 60 && "
             f"/^[a-zA-Z0-9\\s\\.,;:_\\-/=%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(String(props.row.{field_name}))"
         )

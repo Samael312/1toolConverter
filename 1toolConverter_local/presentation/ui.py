@@ -16,13 +16,14 @@ from presentation.mixins.update_mixin import UpdateMixin
 from presentation.mixins.filters_mixin import FilterMixin
 from presentation.mixins.functions_mixin import FunctionMixin
 from presentation.mixins.table_mixin import TableMixin
+from presentation.mixins.openAIMixin import OpenAIMixin 
 
 logger = logging.getLogger(__name__)
 
 
 
 # 2. Heredamos de todos ellos
-class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, FunctionMixin, TableMixin):
+class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, FunctionMixin, TableMixin, OpenAIMixin):
     """
     Controlador de la interfaz de usuario para el conversor HTML a Excel.
     Maneja todos los componentes visuales y la interacción con el usuario.
@@ -278,6 +279,8 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
                 # Botón de errores destacado
                 self.error_button = ui.button("Errores: 0", on_click=self.toggle_error_filter).props("icon=warning color=negative outline rounded")
                 ui.button('Guardar Correcciones', on_click=lambda: self.save_all_corrections(field_name='description')).props('outline color=positive icon=save rounded')
+                ui.button('IA: Corregir Errores', on_click=self.ai_fix_errors, icon='auto_fix_high').props('outline color=purple rounded').tooltip('Usa GPT para corregir formato y longitud automáticamente')
+                ui.button('IA: Rellenar Vacíos', on_click=self.ai_fill_empty, icon='settings').props('outline color=teal rounded').tooltip('Genera descripciones para celdas vacías basándose en otras columnas')
 
             self.table_card = table_card
             self.table_card.visible = False
