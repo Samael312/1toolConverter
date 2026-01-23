@@ -52,7 +52,7 @@ class HandleMixin:
             ui.notify(f"Error al cargar archivo: {ex}", type='negative')
 
     def handle_backend_selection(self, e):
-            """🆕 Activa o desactiva la UI según el backend seleccionado."""
+            """ Activa o desactiva la UI según el backend seleccionado."""
             backend = e.value
             self.backend_selected = backend
 
@@ -421,65 +421,76 @@ class HandleMixin:
                 ui.notify(f"Error manejando cambio de vista: {ex}", type='negative')
 
     def handle_field_change(self, e, field_name: str, label: str = None):
-            """Manejador genérico para cambios en un campo editable de la tabla."""
-            try:
-                logger.info(f"🟢 [handle_field_change:{field_name}] Evento recibido.")
-                logger.info(f"Contenido bruto del evento: {repr(e)}")
+        """Manejador genérico para cambios en un campo editable de la tabla."""
+        try:
+            # --- 1. Extraer fila del evento ---
+            args = getattr(e, 'args', e)
+            if isinstance(args, dict):
+                row = args
+            elif isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
+                row = args[0]
+            else:
+                ui.notify('Evento sin datos válidos', type='warning')
+                return
+
+            row_id = str(row.get('id'))
+            
+            # Obtener y limpiar el nuevo valor
+            raw_value = row.get(field_name, '')
+            new_value = raw_value.strip() if isinstance(raw_value, str) else raw_value
+
+            logger.info(f"🧾 Actualizando {label} (ID={row_id}) -> '{new_value}'")
+
+            # --- 2. Actualizar processed_data ---
+            if self.processed_data is not None and not self.processed_data.empty:
+                # Creamos la máscara para encontrar la fila por ID
+                mask = self.processed_data['id'].astype(str) == row_id
                 
+                if mask.any():
+                    # A. Guardamos el nuevo valor
+                    self.processed_data.loc[mask, field_name] = new_value
+                    
+                    # B. Reseteamos el error_flag a 0 
+                    self.processed_data.loc[mask, 'error_flag'] = 0 
+                    
+                    logger.info(f"✅ processed_data: {field_name} actualizado y error_flag limpiado.")
 
-                # --- Extraer fila del evento ---
-                args = getattr(e, 'args', e)
-                if isinstance(args, dict):
-                    row = args
-                elif isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
-                    row = args[0]
-                else:
-                    ui.notify('Evento sin datos válidos', type='warning')
-                    return
+            # --- 3. Actualizar grouped_data (si existe) ---
+            if self.grouped_data is not None and not self.grouped_data.empty:
+                mask_g = self.grouped_data['id'].astype(str) == row_id
+                if mask_g.any():
+                    self.grouped_data.loc[mask_g, field_name] = new_value
+                    # Si grouped_data también tiene error_flag, actualízalo:
+                    if 'error_flag' in self.grouped_data.columns:
+                        self.grouped_data.loc[mask_g, 'error_flag'] = 0
 
-                row_id = str(row.get('id'))
-                self.update_error_counter()
+            # --- 4. Actualizar contadores ---
+            self.update_error_counter()
 
-                try:
-                    raw_value = row.get(field_name, '')
-                    new_value = raw_value.strip() if isinstance(raw_value, str) else raw_value
-                    self.update_error_counter()
-                except Exception:
-                    ui.notify("No hay cambios para realizar")
-                    return
-
-                logger.info(f"🧾 Actualizando {label} (ID={row_id}) -> '{new_value}'")
-
-                # --- Actualizar processed_data ---
-                if self.processed_data is not None and not self.processed_data.empty:
-                    mask = self.processed_data['id'].astype(str) == row_id
-                    self.update_error_counter()
-                    if mask.any():
-                        self.processed_data.loc[mask, field_name] = new_value
-                        logger.info(f"✅ processed_data.{field_name} actualizado")
-
-                # --- Actualizar grouped_data ---
-                if self.grouped_data is not None and not self.grouped_data.empty:
-                    mask = self.grouped_data['id'].astype(str) == row_id
-                    self.update_error_counter()
-                    if mask.any():
-                        self.grouped_data.loc[mask, field_name] = new_value
-                        logger.info(f"✅ grouped_data.{field_name} actualizado")
-
-                # --- Actualizar visualmente la tabla ---
+            # --- 5. Actualizar visualmente la tabla ---
+            if hasattr(self, 'error_filter_active') and self.error_filter_active:
+                # Si el filtro de errores está activo, recargamos toda la tabla filtrada:
+                df_display = self.processed_data.copy()
+                df_filtered = df_display[df_display['error_flag'] == 1]
+                self.table.rows = df_filtered.replace({np.nan: ''}).to_dict('records')
+                self.table.update()
+                ui.notify(f"Corrección aplicada. Error resuelto.", type='positive')
+            else:
+                # Actualizamos solo la fila modificada en la tabla visible
                 if self.table and self.table.rows:
-                    self.update_error_counter()
                     for r in self.table.rows:
                         if str(r.get('id')) == row_id:
                             r[field_name] = new_value
+                            r['error_flag'] = 0 # Visualmente quitamos el flag también
                             break
-                    self.update_group_table()
-                    self.update_error_counter()
-                    self.display_table()
+                    self.table.update()
+                    ui.notify(f"{label} actualizado", type='positive')
 
-                ui.notify(f"{label} actualizado (ID={row_id})", type='positive', timeout=1.5)
+            # Actualizar tablas auxiliares si es necesario
+            if hasattr(self, 'update_group_table'):
+                self.update_group_table()
 
-            except Exception as ex:
-                import traceback
-                logger.error(f"❌ Error en handle_field_change({field_name}):\n" + traceback.format_exc())
-                ui.notify(f"Error actualizando {label or field_name}: {ex}", type='negative')
+        except Exception as ex:
+            import traceback
+            logger.error(f"❌ Error en handle_field_change({field_name}):\n" + traceback.format_exc())
+            ui.notify(f"Error actualizando {label or field_name}: {ex}", type='negative')

@@ -11,8 +11,6 @@ class FilterMixin:
     No realiza cálculos lógicos pesados sobre los datos.
     """
 
-    # NOTA: auto_classify_groups SE HA MOVIDO A backend/logic.py
-
     def toggle_error_filter(self, e=None):
         """Activa/desactiva el filtro visual de errores."""
         # 1. Protección inicial
@@ -164,8 +162,7 @@ class FilterMixin:
         """Limpia input y restaura tabla principal."""
         if hasattr(self, 'search_input') and self.search_input:
             self.search_input.value = ''
-            # Al poner value='', el evento on_change (apply_search_filter) saltará automáticamente,
-            # restaurando la tabla. No hace falta hacerlo manual aquí.
+            
 
     def reset_group_search_input(self, e):
         """Limpia input y restaura tabla grupos."""

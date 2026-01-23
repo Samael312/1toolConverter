@@ -353,3 +353,94 @@ class FunctionMixin:
             except Exception as e:
                 logger.error(f"Error descargando errores: {e}")
                 ui.notify(f"Error al generar el Excel: {str(e)}", type='negative')
+
+    
+    def save_all_corrections(self, field_name='description'):
+        """
+        Aplica la lógica de 'handle_field_change' masivamente a todas las filas válidas
+        y actualiza ambas tablas visualmente al final.
+        """
+        saved_count = 0
+        regex_pattern = r'^[a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]*$'
+        
+        # Bandera para saber si tocamos datos y si es necesario recargar
+        changes_made = False
+
+        # Iteramos sobre la memoria visual (self.table.rows) que ya está sincronizada gracias al debounce
+        for row in self.table.rows:
+            
+            # Solo actuamos si la fila sigue marcada como error
+            if row.get('error_flag') == 1:
+                
+                current_val = row.get(field_name, '')
+                # Limpieza de espacios
+                if isinstance(current_val, str):
+                    current_val = current_val.strip()
+                
+                row_id = str(row.get('id'))
+                
+                # --- VALIDACIÓN (Igual que en el Check individual) ---
+                valid_len = len(current_val) <= 60
+                valid_chars = bool(re.match(regex_pattern, current_val))
+                
+                if valid_len and valid_chars:
+                    
+                    # 1. ACTUALIZAR PROCESSED_DATA (Tabla Principal)
+                    if self.processed_data is not None:
+                        mask = self.processed_data['id'].astype(str) == row_id
+                        if mask.any():
+                            self.processed_data.loc[mask, field_name] = current_val
+                            self.processed_data.loc[mask, 'error_flag'] = 0
+                            
+                            # Actualizamos la fila en memoria del bucle para que ya conste como limpia
+                            row['error_flag'] = 0 
+                            changes_made = True
+                            saved_count += 1
+
+                    # 2. ACTUALIZAR GROUPED_DATA (Segunda Tabla)
+                    # Esta es la parte que replica la lógica de handle_field_change
+                    if self.grouped_data is not None and not self.grouped_data.empty:
+                        mask_g = self.grouped_data['id'].astype(str) == row_id
+                        if mask_g.any():
+                            self.grouped_data.loc[mask_g, field_name] = current_val
+                            # Si la tabla agrupada maneja flags de error, los limpiamos
+                            if 'error_flag' in self.grouped_data.columns:
+                                self.grouped_data.loc[mask_g, 'error_flag'] = 0
+                            changes_made = True
+
+        if changes_made:
+            # --- ACTUALIZACIÓN VISUAL ---
+            
+            # 1. Actualizar contadores
+            self.update_error_counter()
+            
+            # 2. Refrescar la tabla principal (esto hará que las filas corregidas desaparezcan si hay filtro)
+            self.refresh_table_view() 
+            
+            # 3. Refrescar la SEGUNDA TABLA
+            # Es vital llamar a la función que reconstruye la tabla agrupada
+            if hasattr(self, 'update_group_table'):
+                self.update_group_table()
+            
+            ui.notify(f"✅ Éxito: Se guardaron {saved_count} correcciones y se actualizaron ambas tablas.", type='positive')
+        else:
+            ui.notify("No se encontraron correcciones válidas pendientes.", type='warning')
+
+    def refresh_table_view(self):
+        """Recarga los datos de la tabla según el estado del filtro."""
+        df_display = self.processed_data.copy()
+        
+        if self.error_filter_active:
+            # Si el filtro está activo, mostramos solo los que SIGUEN teniendo error
+            df_filtered = df_display[df_display['error_flag'] == 1]
+            self.table.rows = df_filtered.replace({np.nan: ''}).to_dict('records')
+            self.table.update()
+            
+            # Opcional: Si ya no quedan errores, podrías desactivar el filtro automáticamente
+            if df_filtered.empty:
+                ui.notify("¡Felicidades! Has corregido todos los errores.", type='positive')
+                # self.toggle_error_filter() # Descomentar si quieres que vuelva a "Ver Todo" solo
+        else:
+            # Si no hay filtro, mostramos todo actualizado
+            self.table.rows = df_display.replace({np.nan: ''}).to_dict('records')
+            self.table.update()

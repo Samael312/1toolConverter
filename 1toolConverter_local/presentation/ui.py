@@ -277,6 +277,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
                 
                 # Botón de errores destacado
                 self.error_button = ui.button("Errores: 0", on_click=self.toggle_error_filter).props("icon=warning color=negative outline rounded")
+                ui.button('Guardar Correcciones', on_click=lambda: self.save_all_corrections(field_name='description')).props('icon=done_all color=primary')
 
             self.table_card = table_card
             self.table_card.visible = False
@@ -285,7 +286,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
             with ui.row().classes('w-full p-4 gap-4 items-start flex-wrap bg-white'):
                 # 1. Selector de Columna 
                 self.search_column_selector = ui.select(
-                    options=['register', 'name', 'description', 'system_category'], 
+                    options=['register', 'name', 'description', 'system_category', 'unit', 'view', 'error_flag', 'id'], 
                     value='name', 
                     label='Buscar columna',
                     on_change=self.reset_search_input
@@ -410,7 +411,9 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
             with ui.row().classes('w-full p-4 gap-4 items-start flex-wrap bg-white'):
 
                 self.group_search_column_selector = ui.select(
-                    options=['register', 'name', 'description', 'system_category'], value='name', label='Buscar columna',
+                    options=['register', 'name', 'description', 'system_category', 'unit', 'view', 'error_flag', 'id'], 
+                    value='name', 
+                    label='Buscar columna',
                     on_change=self.reset_group_search_input
                 ).props('outlined dense options-dense').classes('w-48')
 
