@@ -277,7 +277,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
                 
                 # Botón de errores destacado
                 self.error_button = ui.button("Errores: 0", on_click=self.toggle_error_filter).props("icon=warning color=negative outline rounded")
-                ui.button('Guardar Correcciones', on_click=lambda: self.save_all_corrections(field_name='description')).props('icon=done_all color=primary')
+                ui.button('Guardar Correcciones', on_click=lambda: self.save_all_corrections(field_name='description')).props('outline color=positive icon=save rounded')
 
             self.table_card = table_card
             self.table_card.visible = False
@@ -389,7 +389,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
                     self.clear_table_button = ui.button('Limpiar Todo', on_click=self.clear_main_table).props('outline color=warning icon=delete_forever')
                     
                     self.delete_rows_button = ui.button('Eliminar Selección', on_click=self.deleted_selected_rows).props('outline color=negative icon=delete')
-                    ui.button('Descargar Errores', on_click=self.download_errors_excel).props('outline color=negative icon=bug_report')
+                    #ui.button('Descargar Errores', on_click=self.download_errors_excel).props('outline color=negative icon=bug_report')
                     ui.button('Agregar Fila Manual', on_click=self.add_new_row).props('outline color=secondary icon=add')
                     ui.button('Generar Mapa', on_click=self.download_variable_map).props('outline color=info icon=map')
                     

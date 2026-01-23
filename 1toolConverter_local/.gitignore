@@ -33,3 +33,8 @@ Thumbs.db
 # Carpetas generadas (opcional)
 # =========================
 Resultados/
+
+# =========================
+# Archivos de configuración local
+# =========================
+.env

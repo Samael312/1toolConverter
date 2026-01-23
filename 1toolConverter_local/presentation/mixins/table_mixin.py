@@ -52,7 +52,7 @@ class TableMixin:
 
                 <div v-if="!props.row.error_flag || props.row.error_flag == 0">
                     <q-icon name="check_circle" color="positive" size="sm">
-                        <q-tooltip>Dato correcto y guardado</q-tooltip>
+                        <q-tooltip>Datos correctos y guardados</q-tooltip>
                     </q-icon>
                 </div>
 
@@ -64,7 +64,7 @@ class TableMixin:
                         color="warning" 
                         @click="$parent.$emit('{event_name}', props.row)"
                     >
-                        <q-tooltip class="bg-orange text-black">Dato válido. Click para guardar.</q-tooltip>
+                        <q-tooltip class="bg-orange text-black">Aun hay errores, corrige antes de utilizar el boton</q-tooltip>
                     </q-btn>
 
                     <q-btn v-else
