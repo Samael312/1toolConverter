@@ -45,7 +45,7 @@ class TableMixin:
               maxlength="{max_length}" 
               style="{style_str}" 
               input-style="{input_style}"
-              debounce="300"
+              debounce="1000"
               @update:model-value="(val) => $parent.$emit('{sync_event}', {{id: props.row.id, val: val}})"
             />
             

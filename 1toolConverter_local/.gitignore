@@ -38,7 +38,8 @@ Resultados/
 # Archivos de configuración local
 # =========================
 .env
-.tar
+*.tar
+*.zip
 
 # =========================
 # Archivos de salida
