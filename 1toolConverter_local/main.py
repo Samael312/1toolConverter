@@ -148,4 +148,9 @@ def main():
 main()  # Crea la interfaz
 
 if __name__ in {'__main__', '__mp_main__'}:
-    ui.run(title="Conversor Universal - Keyter / iPro", reload=True)
+    favicon_path = os.path.join(icon_dir, 'ki_fav.png')
+    ui.run(
+        title="kiCreator - Creador de librerias", 
+        reload=True,
+        favicon=favicon_path,
+        port=8081)

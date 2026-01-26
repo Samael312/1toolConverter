@@ -272,8 +272,8 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
                 # Botón de errores destacado
                 self.error_button = ui.button("Errores: 0", on_click=self.toggle_error_filter).props("icon=warning color=negative outline rounded")
                 ui.button('Guardar Correcciones', on_click=lambda: self.save_all_corrections(field_name='description')).props('outline color=positive icon=save rounded')
-                ui.button('IA: Corregir Errores', on_click=self.ai_fix_errors, icon='auto_fix_high').props('outline color=purple rounded').tooltip('Usa GPT para corregir formato y longitud automáticamente')
-                ui.button('IA: Rellenar Vacíos', on_click=self.ai_fill_empty, icon='settings').props('outline color=teal rounded').tooltip('Genera descripciones para celdas vacías basándose en otras columnas')
+                ui.button('IA: Corregir Errores o Rellenar', on_click=self.ai_fix_errors, icon='auto_fix_high').props('outline color=purple rounded').tooltip('Usa GPT para corregir formato y longitud automáticamente')
+                #ui.button('IA: Rellenar Vacíos', on_click=self.ai_fill_empty, icon='settings').props('outline color=teal rounded').tooltip('Genera descripciones para celdas vacías basándose en otras columnas')
 
             self.table_card = table_card
             self.table_card.visible = False
