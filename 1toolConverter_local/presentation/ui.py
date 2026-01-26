@@ -87,7 +87,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
 
         rows = df_display.replace({np.nan: ''}).to_dict('records')
 
-        # 🔹 Marcar errores automáticamente al cargar
+        # Marcar errores automáticamente al cargar
         rows = self.processed_data.replace({np.nan: ''}).to_dict('records')
         self.table.rows = rows
         self.table.update()
@@ -209,7 +209,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
             max_files = 1
             accept_types = ""
 
-            # 🔹 Configurar según backend seleccionado
+            # Configurar según backend seleccionado
             if self.backend_selected == "Keyter":
                 accept_types = ".xls,.xlsx,.xlsm,.html,.htm"
             elif self.backend_selected == "iPro":
@@ -225,7 +225,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
                 accept_types = ""
                 max_files = 0
 
-            # 🔹 Crear componente de subida
+            # Crear componente de subida
             self.upload_component = ui.upload(
                 label="Arrastra tu archivo aquí o haz clic",
                 auto_upload=True,
@@ -239,7 +239,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
             self.upload_component.on_upload(self.handle_upload)
             self.upload_component.on('removed', lambda e: self.remove_uploaded_files())
 
-            # 🔹 Deshabilitar si el backend no tiene formatos válidos
+            #  Deshabilitar si el backend no tiene formatos válidos
             if not accept_types:
                 self.upload_component.disable()
 
@@ -397,7 +397,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
                     ui.button('Generar Mapa', on_click=self.download_variable_map).props('outline color=info icon=map')
                     
                     
-        self.table.on('click', lambda e: logger.info("✅ Evento click detectado en tabla"))
+        self.table.on('click', lambda e: logger.info("Evento click detectado en tabla"))
 
     
     def _create_group_table_section(self):

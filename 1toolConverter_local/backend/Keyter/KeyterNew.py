@@ -78,7 +78,7 @@ def process_excel(
     all_dfs = []  # aquí almacenaremos los DF por hoja
 
     for sheet_name in wb.sheetnames:
-        logger.info(f"🟢 Procesando hoja '{sheet_name}'...")
+        logger.info(f"Procesando hoja '{sheet_name}'...")
 
         try:
             ws = wb[sheet_name]
@@ -128,7 +128,7 @@ def process_excel(
             rows.append(row_dict)
 
         df_sheet = pd.DataFrame(rows)
-        logger.info(f"✅ Finalizada hoja '{sheet_name}' ({len(df_sheet)} filas procesadas).")
+        logger.info(f" Finalizada hoja '{sheet_name}' ({len(df_sheet)} filas procesadas).")
         all_dfs.append(df_sheet)
 
     if not all_dfs:
@@ -277,14 +277,14 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
     """Corrige valores fuera del rango [-32767, 32767] y marca los ajustes realizados."""
     
-    # --- 0️⃣ Validación general ---
+    # --- 0️ Validación general ---
     if "system_category" in df.columns:
         df["system_category"] = df["system_category"].astype(str).str.upper().str.strip()
         system_type = df["system_category"]
     else:
         system_type = pd.Series([], dtype=str)
 
-    # --- 1️⃣ Aplicar corrección de rango ---
+    # --- 1️ Aplicar corrección de rango ---
     if "value" in df.columns:
         # Guardar valor original (opcional)
         df["original_value"] = df["value"]
@@ -504,7 +504,7 @@ def main(argv: List[str]):
         df.to_excel(writer, index=False, sheet_name="processed")
 
     logger.info(f"Archivo exportado correctamente: {output_path}")
-    print(f"✅ Archivo generado: {output_path}")
+    print(f" Archivo generado: {output_path}")
 
 if __name__ == "__main__":
     main(sys.argv)

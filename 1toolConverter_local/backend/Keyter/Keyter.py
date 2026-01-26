@@ -256,7 +256,7 @@ def _apply_view_rules(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
-    # 🔹 Mapeo base por system_category
+    #  Mapeo base por system_category
     category_mapping = {
         'SET_POINT': '16bit/s16',
         'ALARM': '1bit',
@@ -274,13 +274,13 @@ def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
         # Aplicar mapeo base
         df.loc[df["system_category"].isin(category_mapping.keys()), "length"] = df["system_category"].map(category_mapping)
 
-    # 🔧 Ajuste automático para categorías con 16bit/s16 según min/max
+    # Ajuste automático para categorías con 16bit/s16 según min/max
     mask_16bit_s16 = df["length"] == "16bit/s16"
     if "minvalue" in df.columns and "maxvalue" in df.columns:
         df.loc[mask_16bit_s16 & ((df["minvalue"] < 0) | (df["maxvalue"] < 0)), "length"] = "s16"
         df.loc[mask_16bit_s16 & ~((df["minvalue"] < 0) | (df["maxvalue"] < 0)), "length"] = "16bit"
 
-    # 🔹 Para las filas que quedaron sin mapeo, aplicar lógica anterior
+    # Para las filas que quedaron sin mapeo, aplicar lógica anterior
     mask_none = df["length"].isna()
     if "minvalue" in df.columns and "maxvalue" in df.columns:
         df.loc[mask_none, "length"] = "16bit"

@@ -94,7 +94,7 @@ class OpenAIMixin:
                 new_val = raw_new_val.strip('"').strip("'")
                 if len(new_val) > 60: new_val = new_val[:60]
                 
-                print(f"🔄 ID {row_id} | '{input_val}' -> '{new_val}'")
+                print(f"ID {row_id} | '{input_val}' -> '{new_val}'")
 
                 # GUARDAR
                 mask = self.processed_data['id'].astype(str) == row_id
@@ -131,7 +131,7 @@ class OpenAIMixin:
                     await asyncio.sleep(0.01)
 
             except Exception as e:
-                print(f"❌ Error IA en fila {row_id}: {e}")
+                print(f"Error IA en fila {row_id}: {e}")
                 count += 1
                 continue
 
@@ -142,14 +142,14 @@ class OpenAIMixin:
         if hasattr(self, 'update_group_table'):
             self.update_group_table()
             
-        ui.notify(f"✅ Completado: {count} filas procesadas.", type='positive')
+        ui.notify(f" Completado: {count} filas procesadas.", type='positive')
     
     async def ai_fix_errors(self):
         if self.processed_data is None: return
         rows_with_errors = self.processed_data[self.processed_data['error_flag'] == 1]
         
         if rows_with_errors.empty:
-            ui.notify("👏 No hay errores pendientes.", type='positive')
+            ui.notify(" No hay errores pendientes.", type='positive')
             return
 
         system_prompt = (
@@ -179,7 +179,6 @@ class OpenAIMixin:
             return
 
         # 2. Verificamos que exista la columna 'Name' (o como se llame en tu Excel)
-        # Ajusta 'Name' si tu columna se llama 'Nombre', 'Material', etc.
         source_col = 'name' 
         if source_col not in self.processed_data.columns:
             ui.notify(f"Error: No encuentro la columna '{source_col}' para basarme.", type='negative')

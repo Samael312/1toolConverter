@@ -71,7 +71,7 @@ class FunctionMixin:
             1. Selección en Main -> Borra en Main Y en Group.
             2. Selección en Group -> Borra SOLO en Group (Main se mantiene intacto).
             """
-            ROW_KEY = 'name' # ⚠️ Asegúrate que este sea tu identificador único (ej. 'name', 'register')
+            ROW_KEY = 'name' 
             
             logger.info("🗑️ Iniciando borrado inteligente...")
             ids_from_main = set()
@@ -100,11 +100,11 @@ class FunctionMixin:
             # --- 2. PROCESAR SELECCIÓN DE TABLA GRUPOS (GROUP) ---
             # Regla: Lo que se borra aquí, SOLO desaparece de aquí.
             if hasattr(self, 'group_table') and self.group_table.selected:
-                # Capturamos IDs seleccionados explícitamente en el grupo
+                
                 ids_from_group = {row.get(ROW_KEY) for row in self.group_table.selected if row.get(ROW_KEY)}
 
             # --- 3. SINCRONIZACIÓN FINAL ---
-            # Unimos: (IDs borrados en Main porque deben borrarse abajo) + (IDs borrados manualmente en Grupo)
+            
             all_ids_to_remove_from_group = ids_from_main.union(ids_from_group)
 
             if all_ids_to_remove_from_group:
@@ -113,7 +113,7 @@ class FunctionMixin:
                     initial_len = len(self.grouped_data)
                     self.grouped_data = self.grouped_data[~self.grouped_data[ROW_KEY].isin(all_ids_to_remove_from_group)]
                     
-                    # Log para verificar que solo se borró en grupo lo que debía
+                    
                     logger.info(f"Group: Se eliminaron {initial_len - len(self.grouped_data)} filas.")
 
                 # B. Borrar de Group UI
@@ -126,14 +126,14 @@ class FunctionMixin:
 
             # Feedback
             if rows_deleted > 0:
-                ui.notify(f"🗑️ Proceso completado. Filas gestionadas.", type='info')
+                ui.notify(f"Proceso completado. Filas gestionadas.", type='info')
             else:
-                ui.notify("⚠️ No hay filas seleccionadas.", type='warning')
+                ui.notify("No hay filas seleccionadas.", type='warning')
 
 
     def clear_main_table(self):
             """Limpia SOLO la tabla principal con logs."""
-            logger.info("🧹 Solicitud de limpieza: Tabla Principal")
+            logger.info("Solicitud de limpieza: Tabla Principal")
             
             if hasattr(self, 'table'):
                 prev_count = len(self.table.rows)
@@ -146,12 +146,12 @@ class FunctionMixin:
             
             self.processed_data = pd.DataFrame()
             logger.info("DataFrame 'processed_data' reseteado a vacío.")
-            ui.notify("🧹 Tabla Principal limpiada.", type='positive')
+            ui.notify("Tabla Principal limpiada.", type='positive')
 
 
     def clear_group_table(self):
             """Limpia SOLO la tabla de grupos con logs."""
-            logger.info("🧹 Solicitud de limpieza: Tabla de Grupos")
+            logger.info("Solicitud de limpieza: Tabla de Grupos")
             
             if hasattr(self, 'group_table'):
                 prev_count = len(self.group_table.rows)
@@ -164,7 +164,7 @@ class FunctionMixin:
             
             self.grouped_data = pd.DataFrame()
             logger.info("DataFrame 'grouped_data' reseteado a vacío.")
-            ui.notify("🧹 Tabla de Grupos limpiada.", type='positive')
+            ui.notify("Tabla de Grupos limpiada.", type='positive')
 
     def add_new_row(self):
             """Agrega una nueva fila al inicio de la tabla, la muestra inmediatamente y la clasifica si aplica."""
@@ -211,7 +211,7 @@ class FunctionMixin:
                 self.pagination_main['page'] = 1
                 self.table.update()
 
-                ui.notify(f"✅ Fila '{new_row['name']}' agregada en la parte superior.", color='positive', position='top')
+                ui.notify(f"Fila '{new_row['name']}' agregada en la parte superior.", color='positive', position='top')
 
                 # --- Si pertenece a un grupo válido, agregarla también a la tabla de grupos ---
                 valid_groups = [
@@ -229,9 +229,9 @@ class FunctionMixin:
                         self.grouped_data = pd.concat([new_df, self.grouped_data], ignore_index=True)
 
                     self.update_group_table()
-                    ui.notify(f"🟩 Fila '{new_row['name']}' clasificada automáticamente en {new_row['system_category']}.", color='positive')
+                    ui.notify(f"Fila '{new_row['name']}' clasificada automáticamente en {new_row['system_category']}.", color='positive')
                 else:
-                    ui.notify(f"ℹ️ Fila agregada sin grupo asignado (categoría: {new_row['system_category']}).", color='info')
+                    ui.notify(f"ℹFila agregada sin grupo asignado (categoría: {new_row['system_category']}).", color='info')
 
                 # --- Refrescar tabla principal y de grupos ---
                 self.display_table()
@@ -239,7 +239,7 @@ class FunctionMixin:
 
             except Exception as ex:
                 import traceback
-                logger.error(f"❌ Error al agregar nueva fila:\n" + traceback.format_exc())
+                logger.error(f"Error al agregar nueva fila:\n" + traceback.format_exc())
                 ui.notify(f"Error al agregar nueva fila: {ex}", type='negative')
 
     def download_variable_map(self):
@@ -252,7 +252,7 @@ class FunctionMixin:
                 elif self.processed_data is not None and not self.processed_data.empty:
                     df_source = self.processed_data
                 else:
-                    ui.notify("⚠️ No hay datos para generar el mapa de variables.", type='warning')
+                    ui.notify(" No hay datos para generar el mapa de variables.", type='warning')
                     return
 
                 available_cols = list(df_source.columns)
@@ -275,7 +275,7 @@ class FunctionMixin:
                     async def confirmar_exportacion():
                         cols = selected_columns.value
                         if not cols:
-                            ui.notify("⚠️ Selecciona al menos una columna.", type='warning')
+                            ui.notify(" Selecciona al menos una columna.", type='warning')
                             return
 
                         # Cerrar el diálogo inmediatamente para limpiar la UI
@@ -291,7 +291,7 @@ class FunctionMixin:
                                 file_path = tmp.name
 
                             ui.download(file_path, filename="mapa_variables.xlsx")
-                            ui.notify(f"🚀 Descargando {len(cols)} columnas...", type='positive')
+                            ui.notify(f"Descargando {len(cols)} columnas...", type='positive')
 
                             # Limpieza diferida
                             await asyncio.sleep(60)
@@ -311,7 +311,7 @@ class FunctionMixin:
 
             except Exception as ex:
                 import traceback
-                logger.error(f"❌ Error al abrir diálogo de mapa:\n{traceback.format_exc()}")
+                logger.error(f"Error al abrir diálogo de mapa:\n{traceback.format_exc()}")
                 ui.notify(f"Error sistema: {ex}", type='negative')
         
 
@@ -366,7 +366,7 @@ class FunctionMixin:
         # Bandera para saber si tocamos datos y si es necesario recargar
         changes_made = False
 
-        # Iteramos sobre la memoria visual (self.table.rows) que ya está sincronizada gracias al debounce
+       
         for row in self.table.rows:
             
             # Solo actuamos si la fila sigue marcada como error
@@ -398,12 +398,12 @@ class FunctionMixin:
                             saved_count += 1
 
                     # 2. ACTUALIZAR GROUPED_DATA (Segunda Tabla)
-                    # Esta es la parte que replica la lógica de handle_field_change
+             
                     if self.grouped_data is not None and not self.grouped_data.empty:
                         mask_g = self.grouped_data['id'].astype(str) == row_id
                         if mask_g.any():
                             self.grouped_data.loc[mask_g, field_name] = current_val
-                            # Si la tabla agrupada maneja flags de error, los limpiamos
+                       
                             if 'error_flag' in self.grouped_data.columns:
                                 self.grouped_data.loc[mask_g, 'error_flag'] = 0
                             changes_made = True
@@ -418,11 +418,11 @@ class FunctionMixin:
             self.refresh_table_view() 
             
             # 3. Refrescar la SEGUNDA TABLA
-            # Es vital llamar a la función que reconstruye la tabla agrupada
+            
             if hasattr(self, 'update_group_table'):
                 self.update_group_table()
             
-            ui.notify(f"✅ Éxito: Se guardaron {saved_count} correcciones y se actualizaron ambas tablas.", type='positive')
+            ui.notify(f"Éxito: Se guardaron {saved_count} correcciones y se actualizaron ambas tablas.", type='positive')
         else:
             ui.notify("No se encontraron correcciones válidas pendientes.", type='warning')
 
