@@ -38,7 +38,7 @@ Resultados/
 # Archivos de configuración local
 # =========================
 .env
-
+.tar
 
 # =========================
 # Archivos de salida
