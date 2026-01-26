@@ -26,8 +26,8 @@ LIBRARY_COLUMNS = [
 COLUMN_MAPPING_PDF = {
     "DIRECCION": "register",
     "DIRECCIÓN": "register",
-    "DIRECCI/nÓN": "register",   # si realmente aparece así en tu PDF
-    "DIRECCI\nÓN": "register",   # ← esta es la variante con salto de línea
+    "DIRECCI/nÓN": "register",   
+    "DIRECCI\nÓN": "register",   
     "Nombre": "name",
     "Longitud Word Dato": "length",
     "Longitud\nWord Dato": "length",
@@ -87,7 +87,7 @@ def apply_read_write_flags(df: pd.DataFrame) -> pd.DataFrame:
         reg_raw = str(df.at[i, "register"]).strip()
         reg_upper = reg_raw.upper()
 
-        # Si es texto, puede indicar modo o encabezado
+        
         if reg_raw and not reg_raw.isdigit():
             # Detectar modo
             if "ESCRITURA" in reg_upper:
@@ -167,7 +167,7 @@ def propagate_context(df: pd.DataFrame) -> pd.DataFrame:
             categories.append(current_category)
             continue
 
-        # Duplicado → Propagar categoría usando el nombre de la primera aparición
+        # Registro duplicado: propagar categoría
         current_category = first_names[reg]
         first_index = df.index[df["register"] == reg][0]
 
@@ -249,25 +249,25 @@ def adjust_system_category(df: pd.DataFrame) -> pd.DataFrame:
     if "system_category" not in df.columns:
         df["system_category"] = "DEFAULT"
 
-    # --- 1️⃣ Detectar y marcar alarmas ---
+    # --- 1️ Detectar y marcar alarmas ---
     mask_alarm = df["category"].astype(str).str.upper().str.startswith("AL", na=False)
     total_alarms = mask_alarm.sum()
     df.loc[mask_alarm, "system_category"] = "ALARM"
     logger.info(f"{total_alarms} filas marcadas como ALARM en 'system_category'.")
 
-    # --- 1️⃣ Detectar y marcar command ---
+    # --- 2 Detectar y marcar command ---
     mask_command = df["name"].astype(str).str.upper().str.startswith(("CONTROL", "RESET"), na=False)
     total_com = mask_command.sum()
     df.loc[mask_command, "system_category"] = "COMMAND"
     logger.info(f"{total_com} filas marcadas como COMMAND en 'system_category'.")
 
-    # --- 1️⃣ Detectar y marcar config_parammeter ---
+    # --- 3Detectar y marcar config_parammeter ---
     mask_pa = df["name"].astype(str).str.upper().str.startswith(("P_", "NIVEL", "RESERVA","TPO", "AJUSTE", "OFFSET"), na=False)
     total_pa = mask_pa.sum()
     df.loc[mask_pa, "system_category"] = "CONFIG_PARAMETER"
     logger.info(f"{total_pa} filas marcadas como CONFIG_PARAMMETER en 'system_category'.")
 
-    # --- 1️⃣ Detectar y marcar set_point ---
+    # --- 4 Detectar y marcar set_point ---
     mask_sp = df["name"].astype(str).str.upper().str.startswith("SP", na=False)
     mas_cg= df["name"].astype(str).str.upper().str.startswith("CONSIGNA", na=False)
     total_SP = mask_sp.sum() + mas_cg.sum()
@@ -275,7 +275,7 @@ def adjust_system_category(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[mas_cg, "system_category"] = "SET_POINT"
     logger.info(f"{total_SP} filas marcadas como SET_POINT en 'system_category'.")
 
-    # --- 2️⃣ Ajustar otras categorías ---
+    # --- 5 Ajustar otras categorías ---
     if 'category' in df.columns:
         # Limpiar texto de la columna category
         df['category'] = df['category'].astype(str).str.upper().str.strip()
@@ -333,7 +333,7 @@ def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
     mapping = {"ALARM": 30, "SET_POINT": 300, "DEFAULT": 0, "COMMAND": 0, "STATUS": 60, "SYSTEM": 0, "CONFIG_PARAMETER":0}
     df["sampling"] = df["system_category"].map(mapping).fillna(0)
 
-     # Agregar sufijo solo a duplicados (primer valor tiene índice 0)
+     # Agregar sufijo solo a duplicados 
     if "system_category" in df.columns:
         system_type = df['system_category'].astype(str).str.upper().str.strip()
         df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
@@ -345,7 +345,7 @@ def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
         # Contar repeticiones
         duplicates = df.groupby("name").cumcount()
         
-        # Agregar sufijo solo a duplicados (primer valor tiene índice 0)
+        # Agregar sufijo solo a duplicados 
         df["name"] = np.where(
             duplicates == 0,
             df["name"],
@@ -416,7 +416,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         df["write"] = 0
     df.columns = df.columns.astype(str).str.strip()
 
-    # === 1️⃣ Reglas basadas en 'access_type' ===
+    # === 1 Reglas basadas en 'access_type' ===
     if "access_type" in df.columns:
         access = df["access_type"].astype(str).str.upper().str.strip()
 
@@ -426,7 +426,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
 
         df.drop(columns=["access_type"], inplace=True, errors="ignore")
 
-    # === 2️⃣ Reglas adicionales según 'system_category' ===
+    # === 2 Reglas adicionales según 'system_category' ===
     if "system_category" in df.columns:
         system_type = df["system_category"].astype(str).str.upper().str.strip()
 
@@ -439,7 +439,7 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[system_type == "ANALOG_OUTPUT", "read"] = 3
         df.loc[system_type == "SYSTEM", ["read", "write"]] = [3, 0]
 
-    # === 3️⃣ Limpieza y conversión segura ===
+    # === 3 Limpieza y conversión segura ===
     for col in ["read", "write"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
 
@@ -448,25 +448,25 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
 
 def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
     
-    # --- 0️⃣ Validación general ---
+    # --- 0️ Validación general ---
     if "system_category" in df.columns:
         system_type = df["system_category"].astype(str).str.upper().str.strip()
 
-        # Corrige: comparación múltiple debe hacerse con isin()
+    
         mask_digital = system_type.isin(["DIGITAL_OUTPUT", "STATUS"])
         df.loc[mask_digital, ["minvalue", "maxvalue"]] = [0, 1]
 
-    # --- 1️⃣ Detectar y marcar alarmas ---
+    # --- 1️ Detectar y marcar alarmas ---
     mask_alarm = df["category"].astype(str).str.upper().str.startswith("AL", na=False)
     total_alarms = mask_alarm.sum()
     df.loc[mask_alarm, ["minvalue", "maxvalue"]] = [0, 1]
 
-    # --- 2️⃣ Detectar y marcar command ---
+    # --- 2️ Detectar y marcar command ---
     mask_command = df["name"].astype(str).str.upper().str.startswith(("CONTROL", "RESET"), na=False)
     total_com = mask_command.sum()
     df.loc[mask_command, ["minvalue", "maxvalue"]] = [0, 1]
 
-    # --- 3️⃣ Detectar y marcar ANALOG_OUTPUT ---
+    # --- 3️ Detectar y marcar ANALOG_OUTPUT ---
     mask_analog_output = df["system_category"].astype(str).str.upper().eq("ANALOG_OUTPUT")
 
     # Si empieza con TEMP → [-270, 270]
@@ -477,7 +477,7 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
     mask_analog_other = mask_analog_output & ~df["name"].astype(str).str.upper().str.startswith("TEMP", na=False)
     df.loc[mask_analog_other, ["minvalue", "maxvalue"]] = [0, 9999]
 
-    # --- 4️⃣ Detectar y marcar CONFIG_PARAMETER ---
+    # --- 4️ Detectar y marcar CONFIG_PARAMETER ---
     mask_pa = df["system_category"].astype(str).str.upper().eq("CONFIG_PARAMETER")
 
     # NIVEL → [0, 100]
@@ -490,7 +490,7 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
     )
     df.loc[mask_p_re_tpo, ["minvalue", "maxvalue"]] = [0, 9999]
 
-    # --- 5️⃣ Detectar y marcar set_point ---
+    # --- 5️ Detectar y marcar set_point ---
     mask_sp = df["name"].astype(str).str.upper().str.startswith("SP", na=False)
     mask_cg = df["name"].astype(str).str.upper().str.startswith("CONSIGNA", na=False)
     total_SP = mask_sp.sum() + mask_cg.sum()
@@ -500,17 +500,17 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
 
 def _apply_unit_rules(df: pd.DataFrame) -> pd.DataFrame:
     
-    # --- 0️⃣ Validación general ---
+    # --- 0️ Validación general ---
     if "system_category" not in df.columns or "name" not in df.columns:
         return df
 
     system_type = df["system_category"].astype(str).str.upper().str.strip()
     name_upper = df["name"].astype(str).str.upper().str.strip()
 
-    # --- 1️⃣ Detectar y marcar ANALOG_OUTPUT ---
+    # --- 1️ Detectar y marcar ANALOG_OUTPUT ---
     mask_analog_output = system_type.eq("ANALOG_OUTPUT")
 
-    # --- 2️⃣ Asignar unidades según el tipo ---
+    # --- 2️ Asignar unidades según el tipo ---
     # PRESION → bar
     mask_presion = mask_analog_output & name_upper.str.contains("PRESION", na=False)
     df.loc[mask_presion, "unit"] = "bar"

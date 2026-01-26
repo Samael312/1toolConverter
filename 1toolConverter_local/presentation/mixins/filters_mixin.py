@@ -20,8 +20,7 @@ class FilterMixin:
 
         self.error_filter_active = not self.error_filter_active
 
-        # 2. Obtener datos base (Fuente de la verdad)
-        # Asumimos que 'error_flag' YA FUE CALCULADO en process_file (backend/logic.py)
+        # 2. Obtener datos base 
         df_display = self.processed_data.copy()
 
         # Validación de seguridad: si por alguna razón no existe la columna
@@ -31,7 +30,7 @@ class FilterMixin:
              return
 
         if self.error_filter_active:
-            # 🔥 CASO ACTIVO: Filtramos usando Pandas (es más rápido que iterar listas)
+
             df_filtered = df_display[df_display['error_flag'] == 1]
             rows_to_show = df_filtered.replace({np.nan: ''}).to_dict('records')
             
@@ -40,10 +39,9 @@ class FilterMixin:
                 self.error_button.props("color=positive icon=filter_alt_off")
                 self.error_button.text = 'Ver Todo'
             
-            ui.notify(f"🔴 Filtro activado: {len(rows_to_show)} errores visibles.", type='warning')
+            #ui.notify(f"🔴 Filtro activado: {len(rows_to_show)} errores visibles.", type='warning')
 
         else:
-            # 📋 CASO INACTIVO: Mostramos todo
             rows_to_show = df_display.replace({np.nan: ''}).to_dict('records')
 
             # Estética UI
@@ -51,14 +49,14 @@ class FilterMixin:
                 self.error_button.props("color=negative outline icon=filter_alt")
                 self.error_button.text = 'Filtrar Errores'
             
-            ui.notify("Mostrando todos los registros.", type='info')
+            #ui.notify("Mostrando todos los registros.", type='info')
 
         # 3. Actualizamos UI final
         self.table.rows = rows_to_show
         self.table.selected = [] # Limpiar selección para evitar errores
         self.table.update()
         
-        # Actualizamos el contador (método de UpdateMixin)
+        # Actualizamos el contador 
         if hasattr(self, 'update_error_counter'):
             self.update_error_counter()
 
@@ -72,12 +70,12 @@ class FilterMixin:
             query = (e.value or '').strip().lower()
 
             if not column or column not in self.processed_data.columns:
-                return # No notificamos para no molestar mientras escriben
+                return 
 
             if not query:
                 filtered = self.processed_data
             else:
-                # MEJORA: Usamos 'contains' para búsqueda parcial
+                
                 filtered = self.processed_data[
                     self.processed_data[column].astype(str).str.lower().str.contains(query, na=False)
                 ]
@@ -106,7 +104,6 @@ class FilterMixin:
             self.table.rows = filtered.replace({np.nan: ''}).to_dict('records')
             self.table.update()
             
-            # Feedback visual útil pero no intrusivo
             ui.notify(f"Filtrado: {len(filtered)} filas", position='bottom-right', type='info', timeout=1000)
 
         except Exception as ex:

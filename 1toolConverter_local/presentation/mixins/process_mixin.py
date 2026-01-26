@@ -66,16 +66,16 @@ class ProcessMixin:
                 if df is not None and not df.empty:
                     self.processed_data = df
 
-                    # 🔥 PASO CRÍTICO: Validar errores en todo el DataFrame AHORA
+                    
                     # Creamos la columna 'error_flag' (1 = Error, 0 = OK)
                     self.processed_data['error_flag'] = self.processed_data['description'].apply(
                         lambda desc: 1 if self.validate_description_e(desc) is not True else 0
                     )
 
-                    # 🔥 Contar errores inmediatamente
+                    
                     error_count = self.processed_data['error_flag'].sum()
 
-                    # 🔥 Actualizar el Botón de Errores ANTES de mostrar la tabla
+                   
                     if hasattr(self, 'error_button'):
                         self.error_button.text = f"Errores: {error_count}"
                         
@@ -118,21 +118,21 @@ class ProcessMixin:
                     if self.download_button:
                         self.download_button.enable()
 
-                    # Mostrar las tablas (Leerán self.processed_data que YA tiene los errores marcados)
+                    # Mostrar las tablas 
                     self.display_table()
                     self.update_group_table()
                     
                     # Notificación final
-                    ui.notify(f"✅ Procesado: {len(df)} filas. Errores detectados: {error_count}", type='positive')
+                    ui.notify(f" Procesado: {len(df)} filas. Errores detectados: {error_count}", type='positive')
 
                 else:
                     # Caso DataFrame vacío
                     self.processed_data = None
-                    ui.notify("⚠️ El archivo no contiene datos válidos.", type='warning')
+                    ui.notify("El archivo no contiene datos válidos.", type='warning')
 
             except Exception as ex:
                 import traceback
-                logger.error(f"❌ Error crítico en process_file:\n{traceback.format_exc()}")
+                logger.error(f" Error crítico en process_file:\n{traceback.format_exc()}")
                 ui.notify(f"Error procesando el archivo: {str(ex)}", type='negative')
 
     def remove_uploaded_files(self):
@@ -250,7 +250,7 @@ class ProcessMixin:
                     self.grouped_data['id'] = self.grouped_data['id'].astype(str)
                     selected_rows_df['id'] = selected_rows_df['id'].astype(str)
 
-                    # Eliminar filas existentes con esos IDs (para sobrescribir)
+                    # Eliminar filas existentes con esos IDs 
                     self.grouped_data = self.grouped_data[
                         ~self.grouped_data['id'].isin(selected_rows_df['id'])
                     ]

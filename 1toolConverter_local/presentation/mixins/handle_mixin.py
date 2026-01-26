@@ -29,7 +29,7 @@ class HandleMixin:
                 self.uploaded_file_contents.append(file_bytes)
                 self.uploaded_file_names.append(filename)
             else:
-                # Para otros backends, sobrescribimos el archivo (comportamiento 'single file')
+                # Para otros backends, sobrescribimos el archivo
                 self.uploaded_file_contents = [file_bytes]
                 self.uploaded_file_names = [filename]
 
@@ -56,10 +56,10 @@ class HandleMixin:
             backend = e.value
             self.backend_selected = backend
 
-            # 🔹 Reiniciar interfaz al cambiar de backend
+            # Reiniciar interfaz al cambiar de backend
             self._reset_ui_state()
 
-            # 🔹 Reiniciar también los filtros de búsqueda
+            # Reiniciar también los filtros de búsqueda
             try:
                 self.reset_search_input(e)
                 self.reset_group_search_input(e)
@@ -369,7 +369,7 @@ class HandleMixin:
                 if self.processed_data is None:
                     return
 
-                # ✅ Si se selecciona "primary", removerlo de otras filas.
+                # Si se selecciona "primary", removerlo de otras filas.
                 if new_view == 'primary':
                     # Encontrar cualquier fila que tenga "primary" excepto la actual
                     mask_primary = (
@@ -380,7 +380,7 @@ class HandleMixin:
                     # Cambiar esas vistas a "simple"
                     self.processed_data.loc[mask_primary, 'view'] = 'simple'
 
-                # ✅ Ahora aplicar el nuevo valor a la fila actual
+                # Ahora aplicar el nuevo valor a la fila actual
                 self.processed_data.loc[self.processed_data['id'].astype(str) == row_id, 'view'] = new_view
 
                 # Reconstruir dataframe de la fila actualizada
@@ -389,14 +389,14 @@ class HandleMixin:
                 if selected_row_df.empty:
                     return
 
-            # ✅ Sincronizar grouped_data con los cambios en processed_data (especialmente para el caso "primary")
+            # Sincronizar grouped_data con los cambios en processed_data (especialmente para el caso "primary")
                 if self.grouped_data is not None and not self.grouped_data.empty:
                     # Actualizamos todas las vistas desde processed_data
                     self.grouped_data['view'] = self.grouped_data['id'].astype(str).map(
                         dict(zip(self.processed_data['id'].astype(str), self.processed_data['view']))
                     )
 
-                # ✅ Agregar o reemplazar solo la fila actualizada
+                # Agregar o reemplazar solo la fila actualizada
                 if self.grouped_data is None or self.grouped_data.empty:
                     self.grouped_data = selected_row_df
                 else:
@@ -410,7 +410,7 @@ class HandleMixin:
                     self.grouped_data = pd.concat([selected_row_df, self.grouped_data], ignore_index=True)
 
 
-                # ✅ Refrescar tablas
+                # Refrescar tablas
                 self.update_group_table()
                 self.display_table()
 
@@ -453,7 +453,7 @@ class HandleMixin:
                     # B. Reseteamos el error_flag a 0 
                     self.processed_data.loc[mask, 'error_flag'] = 0 
                     
-                    logger.info(f"✅ processed_data: {field_name} actualizado y error_flag limpiado.")
+                    logger.info(f"processed_data: {field_name} actualizado y error_flag limpiado.")
 
             # --- 3. Actualizar grouped_data (si existe) ---
             if self.grouped_data is not None and not self.grouped_data.empty:
@@ -492,5 +492,5 @@ class HandleMixin:
 
         except Exception as ex:
             import traceback
-            logger.error(f"❌ Error en handle_field_change({field_name}):\n" + traceback.format_exc())
+            logger.error(f" Error en handle_field_change({field_name}):\n" + traceback.format_exc())
             ui.notify(f"Error actualizando {label or field_name}: {ex}", type='negative')

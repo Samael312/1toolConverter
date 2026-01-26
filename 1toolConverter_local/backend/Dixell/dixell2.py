@@ -73,7 +73,7 @@ COLUMNAS_VALIDAS2 = {
     "VAR NAME": ["VAR NAME", "VAR"],
     "DESCRIPTION": ["DESCRIPTION", "description"],
     "GROUP": ["GROUP", "group"],
-    "LENGHT": ["LENGHT", "LENGTH", "lenght", "length"],  # ← ampliado
+    "LENGHT": ["LENGHT", "LENGTH", "lenght", "length"],  
     "TYPE": ["TYPE", "type"]
 }
 
@@ -272,7 +272,7 @@ def _apply_localization(df: pd.DataFrame) -> pd.DataFrame:
         "description_it": "it",
     }
 
-    # 📌 1. Generar columnas nuevas traducidas
+    #  1. Generar columnas nuevas traducidas
     for new_col, lang_code in lang_targets.items():
         if "description" in df.columns:
             translated = []
@@ -290,7 +290,7 @@ def _apply_localization(df: pd.DataFrame) -> pd.DataFrame:
 
             df[new_col] = translated
 
-    # 📌 2. Diccionario de campos a mapear a l10n
+    # 2. Diccionario de campos a mapear a l10n
     langs = {
         "description_es": "en_ES",
         "description": "es_US",
@@ -299,7 +299,7 @@ def _apply_localization(df: pd.DataFrame) -> pd.DataFrame:
         "description_it": "it_IT",
     }
 
-    # 📌 3. Construir el campo l10n
+    #  3. Construir el campo l10n
     def build_l10n(row):
         translations = {}
 
@@ -373,7 +373,7 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     system_type = df['system_category'].astype(str).str.upper().str.strip()
     df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
 
-   # Log para ver qué categorías existen realmente antes de filtrar
+    #Log para ver qué categorías existen realmente antes de filtrar
     #logger.info(f"Categorías presentes antes de dividir I/O: {df['system_category'].unique()}")
 
     # 1. Definir la máscara de la categoría ambigua (usando contains para ser tolerante a espacios/variaciones)
@@ -406,7 +406,7 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     #logger.info(f"{moved_di} filas movidas de DIGITAL OUTPUT/INPUT a DIGITAL_INPUT")
     # --------------------------------
 
-    # --- 4️⃣ Detectar y marcar CONFIG_PARAMETER ---
+    # --- 5 Detectar y marcar CONFIG_PARAMETER ---
     mask_alert = df["system_category"].astype(str).str.upper().eq("ALARM")
     df.loc[mask_alert, ["alarm"]] = '{"severity":"high"}'
 
@@ -569,9 +569,9 @@ def clean_special_characters(df: pd.DataFrame) -> pd.DataFrame:
         if not isinstance(texto, str):
             return ""
         texto = unicodedata.normalize("NFKD", texto)
-        texto = texto.encode("ascii", "ignore").decode("ascii")  # quita tildes y acentos
-        texto = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/%°C]", "", texto)  # permite solo caracteres válidos
-        texto = re.sub(r"\s+", " ", texto).strip()  # limpia espacios extra
+        texto = texto.encode("ascii", "ignore").decode("ascii")  
+        texto = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/%°C]", "", texto)  
+        texto = re.sub(r"\s+", " ", texto).strip()  
         return texto
 
     columnas_a_limpiar = ["description"]
@@ -623,7 +623,7 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = np.nan
         df[col] = df[col].replace(["", " ", None], np.nan)
 
-    # --- 0️⃣ Validación general ---
+    # --- 0️ Validación general ---
     if "system_category" in df.columns:
         system_type = df["system_category"].astype(str).str.upper().str.strip()
 
@@ -631,17 +631,17 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
         mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
         df.loc[mask_digital & mask_empty, ["minvalue", "maxvalue"]] = [0, 1]
 
-         # --- 3️⃣ Detectar y marcar ANALOG_OUTPUT ---
+         # --- 1 Detectar y marcar ANALOG_OUTPUT ---
         mask_analog_output = system_type.isin(["ANALOG_OUTPUT", "ANALOG_INPUT"])
         mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
         df.loc[mask_analog_output & mask_empty, ["minvalue", "maxvalue"]] = [-270, 270]
 
-    # --- 4️⃣ Detectar y marcar CONFIG_PARAMETER ---
+    # --- 2 Detectar y marcar CONFIG_PARAMETER ---
     mask_pa = df["system_category"].astype(str).str.upper().eq("CONFIG_PARAMETER")
     mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
     df.loc[mask_pa & mask_empty, ["minvalue", "maxvalue"]] = [0, 100]
 
-    # --- 5️⃣ Detectar y marcar set_point ---
+    # --- 3 Detectar y marcar set_point ---
     mask_sp = df["system_category"].astype(str).str.upper().eq("SET_POINT")
     mask_empty = df["minvalue"].isna() & df["maxvalue"].isna()
     df.loc[(mask_sp | mask_empty) & mask_empty, ["minvalue", "maxvalue"]] = [0, 9999]
@@ -679,7 +679,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
 
                 if tablas:
                     tablas_detectadas += len(tablas)
-                    descripcion.append(f"📄 Página {num}: {len(tablas)} tabla(s) detectada(s).")
+                    descripcion.append(f" Página {num}: {len(tablas)} tabla(s) detectada(s).")
 
                     for i, tabla in enumerate(tablas, start=1):
                         df = pd.DataFrame(tabla)
@@ -693,7 +693,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                                 break
 
                         if encabezado_principal:
-                            #logger.info(f"🔹 Encabezado '{encabezado_principal}' detectado en página {num}, tabla {i}")
+                            #logger.info(f" Encabezado '{encabezado_principal}' detectado en página {num}, tabla {i}")
                             ultima_hoja_valida = encabezado_principal
                             hojas[encabezado_principal] = pd.concat(
                                 [hojas.get(encabezado_principal, pd.DataFrame()), df],
@@ -801,7 +801,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                 #logger.info("\n==== df_final - Se usara con las ====")
                 #logger.info(COLUMNAS_VALIDAS_USAR)
 
-                # 🔹 Normalizar columnas
+                #  Normalizar columnas
                 columnas_nuevas = []
                 for col in df_copy.columns:
                     col_limpio = str(col).strip()
@@ -815,17 +815,17 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                         columnas_nuevas.append(col_limpio)
                 df_copy.columns = columnas_nuevas
 
-                # 🔹 Eliminar encabezados duplicados
+                #  Eliminar encabezados duplicados
                 df_copy.columns = deduplicar_columnas(df_copy.columns)
 
-                # 🔹 Asegurar todas las columnas válidas
+                #  Asegurar todas las columnas válidas
                 for col in COLUMNAS_VALIDAS_USAR.keys():
                     if col not in df_copy.columns:
                         df_copy[col] = ""
 
-                # 🔹 Reordenar columnas
+                # Reordenar columnas
                 df_copy = df_copy[list(COLUMNAS_VALIDAS_USAR.keys())]
-                #logger.info(f"🔍 COLUMN_MAPPING_USAR aplicado: {COLUMN_MAPPING_USAR}")
+                #logger.info(f" COLUMN_MAPPING_USAR aplicado: {COLUMN_MAPPING_USAR}")
                 df_copy.insert(0, "system_category", nombre)
                 todas.append(df_copy)
                 #logger.info("\n==== df_COPY ====")
@@ -839,7 +839,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             #logger.info(df_final.head(10).to_string())
 
 
-            # 🔹 Combinar "Read Register" y "Write Register" correctamente
+            #  Combinar "Read Register" y "Write Register" correctamente
             read_vals = df_final["Read Register"] if "Read Register" in df_final.columns else pd.Series([""] * len(df_final))
             write_vals = df_final["Write Register"] if "Write Register" in df_final.columns else pd.Series([""] * len(df_final))
             reg_vals = df_final["Register"] if "Register" in df_final.columns else pd.Series([""] * len(df_final))
@@ -867,7 +867,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
             #logger.info(df_final.head(10).to_string())
 
-            # 🔹 Eliminar filas sin 'register' ni 'name'
+            #  Eliminar filas sin 'register' ni 'name'
             df_final = df_final[
                 ~((df_final["register"].fillna("").astype(str).str.strip() == "") &
                   (df_final["name"].fillna("").astype(str).str.strip() == ""))
@@ -877,7 +877,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
             #logger.info(df_final.head(10).to_string())
 
-            # 🔹 Convertir 'register' y 'value' a decimal
+            #  Convertir 'register' y 'value' a decimal
             if "register" in df_final.columns:
                 df_final["register"] = df_final["register"].apply(hex_to_dec).astype(str)
 
@@ -917,7 +917,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
             #logger.info(df_final.head(10).to_string())
 
-            # 🔹 Limpiar filas vacías y categorías no deseadas
+            #  Limpiar filas vacías y categorías no deseadas
             df_final = df_final[df_final["register"].fillna("").astype(str).str.strip() != ""]
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("CLOCK", na=False)]
             df_final = df_final[~df_final["system_category"].astype(str).str.upper().str.contains("SERIAL_OUTPUT", na=False)]
@@ -932,7 +932,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
                     name = str(row.get('name', '')).strip()
                     description = str(row.get('description', '')).strip()
 
-                    # Si name está vacío -> usar description
+                    # Si name está vacío - usar description
                     if name == "":
                         if description == "":
                             return "Sin_descripcion"
@@ -981,7 +981,7 @@ def process_dixell(pdf_content: bytes) -> pd.DataFrame:
             #logger.info(f"Columnas detectadas: {list(df_final.columns)}")
             #logger.info(df_final.head(10).to_string())
 
-    #logger.info(f"✅ Total filas finales: {len(df_final)}")
+    #logger.info(f" Total filas finales: {len(df_final)}")
     #logger.info(f"==== DESCRIPCIÓN DEL PDF ====\n\n" + "\n".join(descripcion))
 
     return df_final
@@ -996,16 +996,16 @@ def process_multiple_pdfs(pdf_contents: list, salida_excel: str = "tablas_extrai
     """
     resultados = []
 
-    #logger.info(f"📥 Recibidos {len(pdf_contents)} elementos para procesar")
+    #logger.info(f" Recibidos {len(pdf_contents)} elementos para procesar")
 
     for i, pdf_content in enumerate(pdf_contents, start=1):
-        #logger.info(f"🔍 Elemento {i}: tipo {type(pdf_content).__name__}")
+        #logger.info(f" Elemento {i}: tipo {type(pdf_content).__name__}")
 
         if not isinstance(pdf_content, (bytes, bytearray)):
             logger.warning(f"⚠️ El elemento {i} no es bytes, se omitirá")
             continue
 
-        #logger.info(f"🔹 Procesando archivo {i} ({len(pdf_content)} bytes)")
+        #logger.info(f" Procesando archivo {i} ({len(pdf_content)} bytes)")
         df_temp = process_dixell(pdf_content)
         if df_temp is None:
             logger.warning(f"❌ process_dixell devolvió None para el elemento {i}")
@@ -1015,18 +1015,18 @@ def process_multiple_pdfs(pdf_contents: list, salida_excel: str = "tablas_extrai
     if resultados:
         df_concat = pd.concat(resultados, ignore_index=True)
 
-        # 🔹 Recalcular 'id' único para todo el conjunto
+        #  Recalcular 'id' único para todo el conjunto
         if not df_concat.empty:
             df_concat['id'] = range(1, len(df_concat) + 1)
 
         try:
             df_concat.to_excel(salida_excel, index=False)
-            #logger.info(f"✅ Archivos concatenados guardados en {salida_excel}")
+            #logger.info(f" Archivos concatenados guardados en {salida_excel}")
         except Exception as e:
             logger.warning(f"No se pudo guardar el Excel: {e}")
         return df_concat
     else:
-        logger.warning("⚠️ No se detectaron datos válidos en ninguno de los PDFs.")
+        logger.warning(" No se detectaron datos válidos en ninguno de los PDFs.")
         return pd.DataFrame(columns=LIBRARY_COLUMNS)
 
 # ====================================================
@@ -1060,10 +1060,10 @@ if __name__ == "__main__":
 
         df_final = process_multiple_pdfs(pdf_bytes_list, salida_excel)
         if df_final is not None and not df_final.empty:
-            print("\n✅ Primeras filas del DataFrame:")
+            print("\n Primeras filas del DataFrame:")
             print(df_final.head())
             print(f"\n📘 Datos exportados a Excel (si lo permitía el entorno): {salida_excel}")
         else:
-            print("⚠️ No se extrajo información útil de los PDFs.")
+            print(" No se extrajo información útil de los PDFs.")
     except Exception as e:
-        logger.error(f"❌ Error al analizar los PDF: {e}")
+        logger.error(f" Error al analizar los PDF: {e}")

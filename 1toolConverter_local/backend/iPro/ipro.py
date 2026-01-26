@@ -452,7 +452,7 @@ if __name__ == "__main__":
         logger.error(f"El archivo de entrada no existe: {input_path}")
         sys.exit(1)
 
-    logger.info(f"📘 Leyendo archivo Excel: {input_path}")
+    logger.info(f" Leyendo archivo Excel: {input_path}")
 
     try:
         with open(input_path, "rb") as f:
@@ -516,12 +516,12 @@ if __name__ == "__main__":
                 sys.exit(0)
 
             df_intermedio = pd.concat(processed_dfs, ignore_index=True)
-            logger.info(f"✅ DataFrame intermedio generado ({len(df_intermedio)} filas)")
+            logger.info(f" DataFrame intermedio generado ({len(df_intermedio)} filas)")
 
             # Guardar versión intermedia
             try:
                 df_intermedio.to_excel(intermedio_path, index=False)
-                logger.info(f"💾 Archivo intermedio exportado: {intermedio_path.resolve()}")
+                logger.info(f" Archivo intermedio exportado: {intermedio_path.resolve()}")
             except Exception as e:
                 logger.warning(f"No se pudo guardar el archivo intermedio: {e}")
 
@@ -539,7 +539,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if df_final is None or df_final.empty:
-        logger.warning("⚠️ El DataFrame final está vacío. No se generará archivo de salida.")
+        logger.warning(" El DataFrame final está vacío. No se generará archivo de salida.")
         sys.exit(0)
 
     if args.preview:
@@ -548,7 +548,7 @@ if __name__ == "__main__":
 
     try:
         df_final.to_excel(output_path, index=False)
-        logger.info(f"✅ Archivo final exportado correctamente: {output_path.resolve()}")
+        logger.info(f" Archivo final exportado correctamente: {output_path.resolve()}")
     except Exception as e:
         logger.error(f"Error al exportar el Excel final: {e}", exc_info=True)
         sys.exit(1)
