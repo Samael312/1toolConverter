@@ -2,7 +2,7 @@
 Aplicación Conversor Universal (Keyter / iPro)
 Punto de entrada principal y lógica de negocio.
 """
-from nicegui import ui, run  
+from nicegui import ui, run, app
 import os
 import logging
 import asyncio
@@ -23,6 +23,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+icon_dir = os.path.join(BASE_DIR, 'presentation', 'components', 'icon')
+
 # =====================================================
 # FUNCIÓN UNIFICADA DE PROCESAMIENTO
 # =====================================================
@@ -36,7 +40,6 @@ async def unified_process_file(mode: str, filename, file_bytes):
         if mode == "Dixell":
             logger.info(f"Procesando {len(file_bytes)} archivos PDF con backend Dixell")
             # 3. Usamos await run.io_bound para ejecutar en segundo plano
-            # Nota: pasamos la función SIN paréntesis, y luego los argumentos
             return await run.io_bound(dixell_process_pdf, file_bytes)
 
         # Para otros backends
@@ -73,6 +76,13 @@ async def unified_process_file(mode: str, filename, file_bytes):
 def main():
     """Inicializa la interfaz y conecta el procesamiento al backend elegido."""
     logger.info("Inicializando interfaz Conversor Universal...")
+
+    if os.path.exists(icon_dir):
+        app.add_static_files('/logo', icon_dir)
+        logger.info(f"Icon montado en: {icon_dir}")
+    else:
+        logger.warning(f"NO se encontró icon: {icon_dir}")
+        pass
 
     async def process_with_backend(file_bytes):
         backend = ui_controller.backend_selected

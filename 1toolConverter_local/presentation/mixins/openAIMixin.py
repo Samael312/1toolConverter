@@ -31,7 +31,6 @@ class OpenAIMixin:
         count = 0
 
         # --- 1. SETUP UI (Diseño Moderno) ---
-        # backdrop-filter="blur(4px)" desenfoca el fondo para que destaque el diálogo
         loading_dialog = ui.dialog().props('persistent backdrop-filter="blur(4px)"')
         
         with loading_dialog, ui.card().classes('w-96 shadow-2xl rounded-2xl items-center p-6 bg-white'):
@@ -155,7 +154,7 @@ class OpenAIMixin:
         system_prompt = (
             "Eres un experto en limpieza de datos. "
             "Corrige la descripción técnica. "
-            "REGLAS: Máx 60 caracteres. Solo A-Z, 0-9 y . , ; : _ - / ( ) "
+            "REGLAS: Máx 50 caracteres. Solo A-Z, 0-9 y . , ; : _ - / ( ) "
             "Devuelve SOLO el texto limpio."
         )
         # Solo usamos {val}

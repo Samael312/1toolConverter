@@ -10,6 +10,7 @@ import os
 import asyncio
 
 
+from presentation.components.header import create_header
 from presentation.mixins.process_mixin import ProcessMixin
 from presentation.mixins.handle_mixin import HandleMixin  
 from presentation.mixins.update_mixin import UpdateMixin     
@@ -155,15 +156,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
         """)
 
         # --- HEADER PROFESIONAL ---
-        with ui.header().classes('bg-slate-800 text-white shadow-md q-py-sm items-center justify-between'):
-            with ui.row().classes('items-center gap-3 q-pl-md'):
-                ui.icon('library_books', size='md').classes('text-blue-400')
-                with ui.column().classes('gap-0'):
-                    ui.label('Creador de Librerías').classes('text-xl font-bold tracking-tight')
-                    ui.label('Herramienta de conversión y gestión').classes('text-xs text-slate-400')
-            
-            # Espacio para info de usuario o versión si fuera necesario
-            ui.label('v1.0').classes('q-pr-md text-slate-500 text-xs')
+        create_header()
 
         # --- CONTENEDOR PRINCIPAL ---
         with ui.column().classes('w-full max-w-7xl mx-auto p-6 gap-8'):
