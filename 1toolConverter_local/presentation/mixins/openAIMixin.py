@@ -1,166 +1,167 @@
 import asyncio
 import os
-from openai import AsyncOpenAI
-from nicegui import ui
+import re
 import pandas as pd
-from dotenv import load_dotenv
-from backend.General.logic import validate_description_text
+from nicegui import ui
+from openai import AsyncOpenAI
 
-load_dotenv()
+# Tu Regex definida
+ALLOWED_CHARS_REGEX = r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]"
 
 class OpenAIMixin:
-    """
-    Maneja la lógica de corrección y rellenado usando OpenAI.
-    """
-
+    
     def _get_openai_client(self):
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
-            ui.notify(" Falta la API Key (Configure .env)", type='negative')
+            ui.notify("Falta la API Key", type='negative')
             return None
         return AsyncOpenAI(api_key=api_key)
 
-    async def _process_batch_ai(self, rows_to_process, system_prompt, user_prompt_template, field_name='description', source_column=None):
+    async def _call_openai_simple(self, client, system_msg, user_msg):
+        """Helper simple para una llamada a OpenAI"""
+        try:
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg}
+                ],
+                max_tokens=60,
+                temperature=0.3
+            )
+            return response.choices[0].message.content.strip().strip('"').strip("'")
+        except Exception as e:
+            print(f"Error OpenAI: {e}")
+            return None
+
+    def _validate_chars(self, text):
+        """Valida si el texto cumple con los caracteres permitidos"""
+        if not text: return False
+        cleaned = re.sub(ALLOWED_CHARS_REGEX, "", text)
+        # Si al limpiar queda igual que el original, es válido.
+        # También verificamos que no sea una cadena vacía después de limpiar.
+        return cleaned == text and len(cleaned) > 0
+
+    async def ai_fix_errors(self):
         """
-        Versión Estética con Porcentaje Correcto (0-100%).
+        Lógica inteligente: 
+        1. Intenta limpiar/parafrasear la descripción.
+        2. Si falla o queda vacía, genera una nueva basada en el NOMBRE.
         """
+        if self.processed_data is None: return
+        
+        # Filtramos filas con error (flag == 1)
+        rows_to_process = self.processed_data[self.processed_data['error_flag'] == 1]
+        
+        if rows_to_process.empty:
+            ui.notify("No hay errores pendientes.", type='positive')
+            return
+
         client = self._get_openai_client()
         if not client: return
 
         total = len(rows_to_process)
         count = 0
 
-        # --- 1. SETUP UI (Diseño Moderno) ---
+        # --- UI SETUP ---
         loading_dialog = ui.dialog().props('persistent backdrop-filter="blur(4px)"')
+        with loading_dialog, ui.card().classes('w-96 items-center p-6'):
+            ui.label("Corrección Inteligente IA").classes("text-xl font-bold")
+            status_label = ui.label("Iniciando...")
+            progress_bar = ui.linear_progress(value=0).props('color="blue-9"')
+            ui.spinner('dots', size='lg')
         
-        with loading_dialog, ui.card().classes('w-96 shadow-2xl rounded-2xl items-center p-6 bg-white'):
-            # Icono animado o destacado
-            ui.icon('auto_awesome', size='3em', color='blue-9').classes('q-mb-sm')
-            
-            ui.label("Procesando...").classes("text-xl font-bold text-gray-800")
-            ui.label("Por favor espera, no cierres esta ventana.").classes("text-xs text-gray-400 q-mb-md")
-            
-            # Contenedor de la barra y porcentajes
-            with ui.column().classes('w-full q-my-md'):
-                # Fila con etiquetas encima de la barra
-                with ui.row().classes('w-full justify-between items-end q-mb-xs'):
-                    status_label = ui.label("Iniciando...").classes("text-xs text-gray-500 font-medium")
-                    percent_label = ui.label("0%").classes("text-sm font-bold text-blue-9")
-
-                # Barra de progreso
-                progress_bar = ui.linear_progress(value=0).props(
-                    'size="10px" rounded color="blue-9" track-color="blue-2"'
-                )
-            
-            # Spinner pequeño abajo
-            ui.spinner('dots', size='lg', color='blue-7')
-
         loading_dialog.open()
         await asyncio.sleep(0.1)
 
-        # --- 2. BUCLE ---
+        # --- PROMPTS ---
+        
+        # PROMPT 1: Limpieza y Extracción
+        system_clean = (
+            "Eres un técnico experto. Tu tarea es extraer y limpiar descripciones técnicas. "
+            "INPUT TIPICO: 'N[VAR_NAME], D[Descripción real], R[0,1]'. "
+            "INSTRUCCIONES: "
+            "1. Extrae SOLO el texto dentro de D[...] si existe. Si no, usa todo el texto. "
+            "2. Elimina nombres de variables técnicas (ej: N_A4_CONTROL). "
+            "3. Si la descripción es críptica, PARAFRASEALA para que sea legible en español. "
+            "4. Si el input es basura (ej: '@', '?', '0'), devuelve la palabra 'INVALIDO'. "
+            "5. CRITICO: Usa SOLO letras, números y estos símbolos: . , ; : _ - / = % ° ( ) "
+            "Máximo 55 caracteres."
+        )
+
+        # PROMPT 2: Generación desde Nombre (Fallback)
+        system_generate = (
+            "Eres un técnico experto. Genera una descripción técnica breve basada en el NOMBRE del producto. "
+            "Prioriza la función del dispositivo. "
+            "Usa SOLO letras, números y: . , ; : _ - / = % ° ( ) "
+            "Máximo 55 caracteres."
+        )
+
+        # --- BUCLE DE PROCESAMIENTO ---
         for index, row in rows_to_process.iterrows():
             row_id = str(row['id'])
+            original_desc = str(row.get('description', ''))
+            row_name = str(row.get('name', '')) # Necesario para el fallback
+
+            new_val = ""
+            origin = "Fixed"
+
+            # INTENTO 1: Corregir la descripción existente
+            prompt_user = f"LIMPIAR: '{original_desc}'"
+            cleaned_text = await self._call_openai_simple(client, system_clean, prompt_user)
+
+            # Validamos el resultado del Intento 1
+            is_valid = False
+            if cleaned_text and cleaned_text != "INVALIDO":
+                # Verificamos Regex
+                if self._validate_chars(cleaned_text):
+                    new_val = cleaned_text
+                    is_valid = True
             
-            col_to_read = source_column if source_column else field_name
-            input_val = row.get(col_to_read, '')
+            # INTENTO 2 (FALLBACK): Si falló lo anterior, usamos el NOMBRE
+            if not is_valid:
+                print(f"ID {row_id} | Falló limpieza de '{original_desc}'. Intentando generar desde Name: '{row_name}'")
+                prompt_user_gen = f"Generar descripción para: '{row_name}'"
+                generated_text = await self._call_openai_simple(client, system_generate, prompt_user_gen)
+                
+                # Validamos de nuevo (incluso lo generado por IA puede tener alucinaciones)
+                if self._validate_chars(generated_text):
+                    new_val = generated_text
+                    origin = "Generated"
+                else:
+                    # Si falla todo, dejamos un placeholder seguro
+                    new_val = "Revisar Manualmente"
             
-            # Saltamos vacíos pero actualizamos contador para que la barra avance
-            if not input_val or pd.isna(input_val):
-                count += 1
-                # Actualizar barra incluso si saltamos
-                pct = count / total
-                progress_bar.value = pct
-                percent_label.text = f"{int(pct * 100)}%"
-                continue
-
-            prompt = user_prompt_template.format(val=input_val)
-
-            try:
-                # LLAMADA API
-                response = await client.chat.completions.create(
-                    model="gpt-4o-mini", 
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=80,
-                    temperature=0.3
-                )
+            # --- GUARDADO ---
+            print(f"ID {row_id} | Final ({origin}): '{new_val}'")
+            
+            mask = self.processed_data['id'].astype(str) == row_id
+            if mask.any():
+                self.processed_data.loc[mask, 'description'] = new_val
+                # Validamos formalmente para quitar el flag de error
+                # Como ya pasó el _validate_chars, sabemos que es True, 
+                # a menos que sea "Revisar Manualmente" que fallará el regex si no admites espacios
+                if self._validate_chars(new_val):
+                     self.processed_data.loc[mask, 'error_flag'] = 0
                 
-                # PROCESAR
-                raw_new_val = response.choices[0].message.content.strip()
-                new_val = raw_new_val.strip('"').strip("'")
-                if len(new_val) > 60: new_val = new_val[:60]
-                
-                print(f"ID {row_id} | '{input_val}' -> '{new_val}'")
+                if self.grouped_data is not None:
+                     mask_g = self.grouped_data['id'].astype(str) == row_id
+                     self.grouped_data.loc[mask_g, 'description'] = new_val
+                     if self._validate_chars(new_val):
+                        self.grouped_data.loc[mask_g, 'error_flag'] = 0
 
-                # GUARDAR
-                mask = self.processed_data['id'].astype(str) == row_id
-                if mask.any():
-                    self.processed_data.loc[mask, field_name] = new_val
-                    if self.grouped_data is not None:
-                         mask_g = self.grouped_data['id'].astype(str) == row_id
-                         self.grouped_data.loc[mask_g, field_name] = new_val
+            # --- UI UPDATE ---
+            count += 1
+            pct = count / total
+            progress_bar.value = pct
+            status_label.text = f"Procesando: {count}/{total}"
+            if count % 2 == 0: await asyncio.sleep(0.01)
 
-                    # VALIDAR
-                    validation_result = validate_description_text(new_val)
-                    flag = 0 if (validation_result is True) else 1
-                    
-                    self.processed_data.loc[mask, 'error_flag'] = flag
-                    if self.grouped_data is not None:
-                        mask_g = self.grouped_data['id'].astype(str) == row_id
-                        self.grouped_data.loc[mask_g, 'error_flag'] = flag
-
-                # --- 3. ACTUALIZAR UI ---
-                count += 1
-                percentage = count / total  # Esto da 0.0 a 1.0 (necesario para la barra)
-                
-                # Actualizamos barra (0.0 - 1.0)
-                progress_bar.value = percentage
-                
-                # Actualizamos texto (0 - 100)
-                percent_label.text = f"{int(percentage * 100)}%"
-                
-                # Actualizamos estado
-                status_label.text = f"Procesando: {count} / {total}"
-                
-                if count % 2 == 0:
-                    self.refresh_table_view()
-                    await asyncio.sleep(0.01)
-
-            except Exception as e:
-                print(f"Error IA en fila {row_id}: {e}")
-                count += 1
-                continue
-
-        # FIN
         loading_dialog.close()
         self.update_error_counter()
         self.refresh_table_view()
-        if hasattr(self, 'update_group_table'):
-            self.update_group_table()
-            
-        ui.notify(f" Completado: {count} filas procesadas.", type='positive')
-    
-    async def ai_fix_errors(self):
-        if self.processed_data is None: return
-        rows_with_errors = self.processed_data[self.processed_data['error_flag'] == 1]
-        
-        if rows_with_errors.empty:
-            ui.notify(" No hay errores pendientes.", type='positive')
-            return
-
-        system_prompt = (
-            "Eres un experto en limpieza de datos. "
-            "Corrige la descripción técnica. "
-            "REGLAS: Máx 50 caracteres. Solo A-Z, 0-9 y . , ; : _ - / ( ) "
-            "Devuelve SOLO el texto limpio."
-        )
-        # Solo usamos {val}
-        user_template = "CORREGIR: '{val}'"
-        
-        await self._process_batch_ai(rows_with_errors, system_prompt, user_template)
+        if hasattr(self, 'update_group_table'): self.update_group_table()
+        ui.notify(f"Proceso finalizado. {count} filas revisadas.", type='positive')
 
     # --- FEATURE #4: RELLENAR VACÍOS (Modificada) ---
     async def ai_fill_empty(self):
