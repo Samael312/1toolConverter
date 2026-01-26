@@ -38,3 +38,9 @@ Resultados/
 # Archivos de configuración local
 # =========================
 .env
+
+
+# =========================
+# Archivos de salida
+# =========================
+tablas_extraidas.xlsx
