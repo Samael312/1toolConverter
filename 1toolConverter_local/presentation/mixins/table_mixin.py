@@ -9,7 +9,7 @@ class TableMixin:
     interactúan con el estado de la aplicación (self).
     """
 
-    def add_editable_slot(self, field_name: str, label: str, input_type: str = "text", max_length: int = 150, 
+    def add_editable_slot(self, field_name: str, label: str, input_type: str = "text", max_length: int = 60, 
                           style_overrides: dict | str | None = None, input_style: str = "width: auto; min-width: 1ch;", 
                           validator=None, placeholder: str | None = None):
         
@@ -63,9 +63,11 @@ class TableMixin:
                         dense flat round size="sm" 
                         icon="check_circle" 
                         color="warning" 
-                        @click="$parent.$emit('{event_name}', props.row)"
+                        disable
                     >
-                        <q-tooltip class="bg-orange text-black">Aun hay errores, corrige antes de utilizar el boton</q-tooltip>
+                        <q-tooltip class="bg-orange text-black">
+                            Para guardar los cambios usar el boton "Guardar Correcciones".
+                        </q-tooltip>
                     </q-btn>
 
                     <q-btn v-else

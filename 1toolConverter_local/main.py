@@ -8,11 +8,13 @@ import logging
 import asyncio
 from backend.Keyter.KeyterNew import process_excel as keyter_new_process
 from backend.Keyter.Keyter import process_html as keyter_html_process
+from backend.Keyter.KeyterCarel import process_excel as keyter_process_carel
 from backend.iPro.ipro import convert_excel_to_dataframe as ipro_convert_excel
 from backend.Cefa.cefa import process_pdf as cefa_process_pdf
 from backend.Dixell.dixell2 import process_multiple_pdfs as dixell_process_pdf
 from presentation.ui import HTMLConverterUI
-
+from openpyxl import load_workbook
+from io import BytesIO
 # =====================================================
 # CONFIGURACIÓN
 # =====================================================
@@ -30,7 +32,31 @@ icon_dir = os.path.join(BASE_DIR, 'presentation', 'components', 'icon')
 # =====================================================
 # FUNCIÓN UNIFICADA DE PROCESAMIENTO
 # =====================================================
-
+def detect_keyter_excel_type(file_bytes: bytes) -> str:
+    """
+    Analiza los nombres de las hojas para determinar qué formato de Keyter es.
+    Retorna: 'MV_BV', 'CAREL_STANDARD' o 'UNKNOWN'
+    """
+    try:
+        # read_only=True hace que sea muy rápido, solo lee metadatos
+        wb = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+        sheet_names = [s.upper().strip() for s in wb.sheetnames]
+        
+        # Criterio para el Excel nuevo (MV-BV)
+        # Busca si existen hojas en español o formato nuevo
+        if any(name in sheet_names for name in ["ANALOGICAS", "ENTERAS", "DIGITAL"]):
+            return "Carel"
+            
+        # Criterio para el Excel antiguo/estándar (Carel)
+        # Busca hojas en inglés mayúsculas
+        if any(name in sheet_names for name in ["ANALOG", "INTEGER", "BOOL"]):
+            return "KeyterNew"
+            
+        return "UNKNOWN"
+    except Exception as e:
+        logger.error(f"Error detectando tipo de Excel: {e}")
+        return "UNKNOWN"
+    
 # 2. Convertimos esta función a ASYNC
 async def unified_process_file(mode: str, filename, file_bytes):
     """
@@ -45,11 +71,31 @@ async def unified_process_file(mode: str, filename, file_bytes):
         # Para otros backends
         ext = os.path.splitext(filename)[1].lower()
         if mode == "Keyter":
-            logger.info("Procesando archivo HTML/Excel con backend Keyter")
+            logger.info("Procesando archivo con backend Keyter")
+            
+            # --- CASO HTML ---
             if ext in [".html", ".htm"]:
                 return await run.io_bound(keyter_html_process, file_bytes)
+            
+            # --- CASO EXCEL (Aquí hacemos la diferenciación) ---
             elif ext in [".xls", ".xlsx", ".xlsm"]:
-                return await run.io_bound(keyter_new_process, file_bytes)
+                
+                # 1. Detectamos qué tipo de Excel es
+                excel_type = await run.io_bound(detect_keyter_excel_type, file_bytes)
+                
+                if excel_type == "Carel":
+                    logger.info("Detectado formato: Carel (Hojas: Analogicas, Enteras...)")
+                    # Llama a la función nueva que arreglamos hoy
+                    return await run.io_bound(keyter_process_carel, file_bytes) 
+                
+                elif excel_type == "KeyterNew":
+                    logger.info("Detectado formato: Carel Estándar (Hojas: ANALOG, INTEGER...)")
+                    # Llama a tu función antigua que ya funcionaba
+                    return await run.io_bound(keyter_new_process, file_bytes) 
+                
+                else:
+                    ui.notify("Formato de Excel Keyter no reconocido (hojas desconocidas)", type='warning')
+                    return None
 
         elif mode == "iPro":
             logger.info("Procesando archivo Excel con backend iPro")
