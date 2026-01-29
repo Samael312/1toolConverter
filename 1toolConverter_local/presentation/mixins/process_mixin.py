@@ -160,43 +160,57 @@ class ProcessMixin:
             ui.notify("Archivos eliminados.", type='info')
 
     def download_excel(self):
-            if self.processed_data is None or self.processed_data.empty:
-                ui.notify("No hay datos para exportar.", type='warning')
-                return
-            try:
-                if self.grouped_data is not None and not self.grouped_data.empty:
-                    df_to_export = self.grouped_data
-                    file_name = 'parametros_clasificados.xlsx'
-                else:
-                    df_to_export = self.processed_data
-                    file_name = 'parametros_convertidos.xlsx'
+        if self.processed_data is None or self.processed_data.empty:
+            ui.notify("No hay datos para exportar.", type='warning')
+            return
 
-                #if 'category' in df_to_export.columns:
-                #   df_to_export['category'] = np.nan
-                
-                if 'id' in df_to_export.columns:
-                    df_to_export['id']=np.nan
+        try:
+            # 1. RECUPERAR NOMBRE ORIGINAL
+            # Definimos un nombre base por defecto por seguridad
+            base_name = "exportacion"
+            
+            # Verificamos si existe la lista y tiene elementos
+            if hasattr(self, 'uploaded_file_names') and self.uploaded_file_names:
+                # Tomamos el primer archivo (asumiendo flujo de archivo único para Excel)
+                original_full_name = self.uploaded_file_names[0]
+                # Quitamos la extensión (.xlsx) para quedarnos solo con el nombre
+                base_name = os.path.splitext(original_full_name)[0]
 
-                with NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
-                    with pd.ExcelWriter(tmp.name, engine='openpyxl') as writer:
-                        df_to_export.to_excel(writer, sheet_name="Parametros", index=False)
-                    tmp.flush()
-                    file_path = tmp.name
+            # 2. DEFINIR DATOS Y NOMBRE FINAL
+            if self.grouped_data is not None and not self.grouped_data.empty:
+                df_to_export = self.grouped_data
+                # Ejemplo: MiArchivo_clasificado.xlsx
+                file_name = f"{base_name}_clasificado.xlsx"
+            else:
+                df_to_export = self.processed_data
+                # Ejemplo: MiArchivo_procesado.xlsx
+                file_name = f"{base_name}_procesado.xlsx"
 
-                ui.download(file_path, filename=file_name)
-                ui.notify(f"Descarga iniciada: {file_name}", type='info')
+            # Limpieza de columnas (ID)
+            if 'id' in df_to_export.columns:
+                df_to_export['id'] = np.nan
 
-                async def cleanup_file(path):
-                    await asyncio.sleep(60)
-                    if os.path.exists(path):
-                        os.remove(path)
-                        logger.debug(f"Archivo temporal eliminado: {path}")
+            # 3. GENERAR Y DESCARGAR
+            with NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
+                with pd.ExcelWriter(tmp.name, engine='openpyxl') as writer:
+                    df_to_export.to_excel(writer, sheet_name="Parametros", index=False)
+                tmp.flush()
+                file_path = tmp.name
 
-                ui.timer(1.0, lambda: asyncio.create_task(cleanup_file(file_path)), once=True)
+            ui.download(file_path, filename=file_name)
+            ui.notify(f"Descarga iniciada: {file_name}", type='info')
 
-            except Exception as ex:
-                logger.error(f"Error al generar Excel: {ex}", exc_info=True)
-                ui.notify(f"Error al generar Excel: {ex}", type='negative')
+            async def cleanup_file(path):
+                await asyncio.sleep(60)
+                if os.path.exists(path):
+                    os.remove(path)
+                    logger.debug(f"Archivo temporal eliminado: {path}")
+
+            ui.timer(1.0, lambda: asyncio.create_task(cleanup_file(file_path)), once=True)
+
+        except Exception as ex:
+            logger.error(f"Error al generar Excel: {ex}", exc_info=True)
+            ui.notify(f"Error al generar Excel: {ex}", type='negative')
 
     def assign_group_to_selection(self):
             if not self.selected_rows:
