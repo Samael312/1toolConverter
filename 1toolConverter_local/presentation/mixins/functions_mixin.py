@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from nicegui import run
 import re
 import os
 import asyncio
@@ -355,92 +356,117 @@ class FunctionMixin:
                 ui.notify(f"Error al generar el Excel: {str(e)}", type='negative')
 
     
-    def save_all_corrections(self, field_name='description'):
-        """
-        Aplica la lógica de 'handle_field_change' masivamente a todas las filas válidas
-        y actualiza ambas tablas visualmente al final.
-        """
-        saved_count = 0
-        regex_pattern = r'^[a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]*$'
+    async def save_all_changes(self):
+        # 1. Crear el diálogo de carga
+        with ui.dialog().props('persistent') as loading_dialog:
+            with ui.card().classes('items-center'):
+                ui.spinner(size='lg')
+                ui.label('Procesando cambios en segundo plano...')
+
+        loading_dialog.open()
         
-        # Bandera para saber si tocamos datos y si es necesario recargar
-        changes_made = False
+        try:
+            # 2. Preparamos los datos necesarios para no pasar objetos complejos de UI al hilo secundario
+            # Solo pasamos los diccionarios de las filas y los DataFrames
+            rows_data = [dict(row) for row in self.table.rows]
+            processed_df = self.processed_data.copy()
+            grouped_df = self.grouped_data.copy() if self.grouped_data is not None else None
+            only_errors = getattr(self, 'filter_errors_active', False)
 
-       
-        for row in self.table.rows:
-            
-            # Solo actuamos si la fila sigue marcada como error
-            if row.get('error_flag') == 1:
-                
-                current_val = row.get(field_name, '')
-                # Limpieza de espacios
-                if isinstance(current_val, str):
-                    current_val = current_val.strip()
-                
-                row_id = str(row.get('id'))
-                
-                # --- VALIDACIÓN (Igual que en el Check individual) ---
-                valid_len = len(current_val) <= 60
-                valid_chars = bool(re.match(regex_pattern, current_val))
-                
-                if valid_len and valid_chars:
-                    
-                    # 1. ACTUALIZAR PROCESSED_DATA (Tabla Principal)
-                    if self.processed_data is not None:
-                        mask = self.processed_data['id'].astype(str) == row_id
-                        if mask.any():
-                            self.processed_data.loc[mask, field_name] = current_val
-                            self.processed_data.loc[mask, 'error_flag'] = 0
-                            
-                            # Actualizamos la fila en memoria del bucle para que ya conste como limpia
-                            row['error_flag'] = 0 
-                            changes_made = True
-                            saved_count += 1
+            # 3. EJECUCIÓN EN SEGUNDO PLANO (CPU BOUND)
+            # Esto evita que la interfaz se congele y se pierda la conexión
+            result = await run.cpu_bound(
+                self._heavy_processing_logic, 
+                rows_data, processed_df, grouped_df, only_errors
+            )
 
-                    # 2. ACTUALIZAR GROUPED_DATA (Segunda Tabla)
-             
-                    if self.grouped_data is not None and not self.grouped_data.empty:
-                        mask_g = self.grouped_data['id'].astype(str) == row_id
-                        if mask_g.any():
-                            self.grouped_data.loc[mask_g, field_name] = current_val
-                       
-                            if 'error_flag' in self.grouped_data.columns:
-                                self.grouped_data.loc[mask_g, 'error_flag'] = 0
-                            changes_made = True
+            # 4. Recuperar los resultados
+            updated_processed_df, updated_grouped_df, saved_count = result
+            
+            # Actualizar el estado de la clase
+            self.processed_data = updated_processed_df
+            if updated_grouped_df is not None:
+                self.grouped_data = updated_grouped_df
 
-        if changes_made:
-            # --- ACTUALIZACIÓN VISUAL ---
-            
-            # 1. Actualizar contadores
-            self.update_error_counter()
-            
-            # 2. Refrescar la tabla principal (esto hará que las filas corregidas desaparezcan si hay filtro)
-            self.refresh_table_view() 
-            
-            # 3. Refrescar la SEGUNDA TABLA
-            
-            if hasattr(self, 'update_group_table'):
+            # 5. Actualizar la UI (esto ya es rápido)
+            if saved_count > 0:
+                self.update_error_counter()
+                self.refresh_table_view()
                 self.update_group_table()
-            
-            ui.notify(f"Éxito: Se guardaron {saved_count} correcciones y se actualizaron ambas tablas.", type='positive')
-        else:
-            ui.notify("No se encontraron correcciones válidas pendientes.", type='warning')
+                ui.notify(f"Éxito: {saved_count} filas actualizadas.", type='positive')
+            else:
+                ui.notify("No se detectaron cambios válidos.", type='warning')
 
-    def refresh_table_view(self):
-        """Recarga los datos de la tabla según el estado del filtro."""
-        df_display = self.processed_data.copy()
+        except Exception as e:
+            logger.error(f"Error crítico: {e}")
+            # Solo intentamos notificar si el cliente sigue vivo
+            try:
+                ui.notify(f"Error al guardar: {e}", type='negative')
+            except:
+                pass
+        finally:
+            # Cerramos el diálogo de forma segura
+            try:
+                loading_dialog.close()
+            except:
+                pass
+
+    # ESTA FUNCIÓN VA FUERA O COMO MÉTODO ESTÁTICO (No puede tocar elementos de UI)
+    @staticmethod
+    def _heavy_processing_logic(rows, df_main, df_group, only_errors):
+        import re # Importar dentro para el proceso hijo
+        regex_pattern = re.compile(r'^[a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]*$')
+        saved_count = 0
         
-        if self.error_filter_active:
-            # Si el filtro está activo, mostramos solo los que SIGUEN teniendo error
-            df_filtered = df_display[df_display['error_flag'] == 1]
-            self.table.rows = df_filtered.replace({np.nan: ''}).to_dict('records')
-            self.table.update()
+        # Optimizamos el DataFrame poniendo 'id' como índice para acceso instantáneo
+        df_main = df_main.set_index('id')
+        if df_group is not None:
+            df_group = df_group.set_index('id')
+
+        for row in rows:
+            if not only_errors or row.get('error_flag') == 1:
+                row_id = row.get('id')
+                row_updated = False
+                
+                # Columnas a procesar
+                cols = [c for c in row.keys() if c not in ['id', 'error_flag']]
+                
+                for field in cols:
+                    val = str(row.get(field, '')).strip()
+                    limit = 60 if field == 'description' else 255
+                    
+                    if len(val) <= limit and regex_pattern.match(val):
+                        # Actualización instantánea por índice (.at es más rápido que .loc)
+                        if row_id in df_main.index:
+                            df_main.at[row_id, field] = val
+                            df_main.at[row_id, 'error_flag'] = 0
+                            row_updated = True
+                        
+                        if df_group is not None and row_id in df_group.index:
+                            df_group.at[row_id, field] = val
+                            df_group.at[row_id, 'error_flag'] = 0
+
+                if row_updated:
+                    saved_count += 1
+
+        # Volvemos a poner el ID como columna antes de devolver
+        return df_main.reset_index(), (df_group.reset_index() if df_group is not None else None), saved_count
+    
+    def refresh_table_view(self):
+            """Recarga los datos de la tabla según el estado del filtro."""
+            df_display = self.processed_data.copy()
             
-            # Opcional: Si ya no quedan errores, podrías desactivar el filtro automáticamente
-            if df_filtered.empty:
-                ui.notify("¡Felicidades! Has corregido todos los errores.", type='positive')
-                # self.toggle_error_filter() # Descomentar si quieres que vuelva a "Ver Todo" solo
-        else:
-            # Si no hay filtro, mostramos todo actualizado
-            self.table.rows = df_display.replace({np.nan: ''}).to_dict('records')
-            self.table.update()
+            if self.error_filter_active:
+                # Si el filtro está activo, mostramos solo los que SIGUEN teniendo error
+                df_filtered = df_display[df_display['error_flag'] == 1]
+                self.table.rows = df_filtered.replace({np.nan: ''}).to_dict('records')
+                self.table.update()
+                
+                # Opcional: Si ya no quedan errores, podrías desactivar el filtro automáticamente
+                if df_filtered.empty:
+                    ui.notify("¡Felicidades! Has corregido todos los errores.", type='positive')
+                    # self.toggle_error_filter() # Descomentar si quieres que vuelva a "Ver Todo" solo
+            else:
+                # Si no hay filtro, mostramos todo actualizado
+                self.table.rows = df_display.replace({np.nan: ''}).to_dict('records')
+                self.table.update()    

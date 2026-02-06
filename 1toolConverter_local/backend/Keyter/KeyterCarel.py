@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Backend Keyter (Adaptado): procesamiento de archivos Excel (Formato MV-BV) -> DataFrame -> Excel procesado.
-Procesa hojas Analogicas, Enteras y Digitales para generar archivo final compatible.
+Procesa hojas Analogicas, Enteras y Digitales aplicando lógica contextual avanzada.
 """
 
 from typing import List, Optional, Dict, Any
@@ -25,7 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =====================================================
-# CONSTANTES
+# CONSTANTES Y MAPEADO
 # =====================================================
 
 LIBRARY_COLUMNS = [
@@ -49,6 +49,54 @@ COLUMN_MAPPING = {
     "R/W": "access_type",
     "Direction": "access_type"
 }
+# --- NUEVAS CONSTANTES PARA LA LÓGICA CONTEXTUAL ---
+
+SHEET_SPECIFIC_MAPPING = {
+    "ANALOGICAS": {'DEFAULT': 'SET_POINT'},
+    "ENTERAS": {'DEFAULT': 'STATUS'},
+    "DIGITAL": {'DEFAULT': 'ESTADO'}
+}
+GENERAL_FALLBACK = {
+    "INPUT-OUTPUT": "HOLIS", "DEFAULT": "CONFIG_PARAMETER", "SERVICES": "SYSTEM",
+    "ALARMS": "ALARM", "CLOCK / TIMEDATE": "SYSTEM", "COMMUNICATION": "SYSTEM",
+    "CONSIGNA": "SET_POINT", "COMANDO": "COMMAND"
+}
+
+SAMPLING_MAP = {
+    "ALARM": 30, "SET_POINT": 300, "STATUS": 60, 
+    "ANALOG_INPUT": 60, "DIGITAL_INPUT": 60
+}
+# 2. Lógica de permisos para una sola fila
+def get_row_permissions(category: str, original_access: str = 'R/W'):
+    """
+    Traduce la categoría y el acceso original (R, W, R/W) 
+    a los códigos numéricos de este backend.
+    """
+    category = category.upper()
+    access = str(original_access).upper().strip()
+    
+    # Valores por defecto
+    r, w = 0, 0
+    
+    # Lógica base según el tipo de acceso de Excel
+    if access == 'R': r, w = 480, 0
+    elif access == 'W': r, w = 0, 5216
+    else: r, w = 3232, 621 # R/W por defecto
+    
+    # Ajustes específicos según tu lógica de Keyter
+    if category in ['ANALOG_INPUT', 'ANALOG_OUTPUT', 'SYSTEM', 'STATUS', 'ALARM', 'DIGITAL_INPUT']:
+        r = 52
+    
+    if category == 'COMMAND':
+        w = 32
+        
+    if category in ['SET_POINT', 'CONFIG_PARAMETER', 'DIGITAL_OUTPUT']:
+        if access != 'R': # Si no era estrictamente lectura
+            r, w = 10, 25
+            
+    return r, w
+
+
 
 # =====================================================
 # FUNCIONES AUXILIARES
@@ -74,8 +122,35 @@ def _apply_column_mapping(df: pd.DataFrame) -> pd.DataFrame:
     for src, dst in COLUMN_MAPPING.items():
         if src in df.columns:
             col_map[src] = dst
+    
     df.rename(columns=col_map, inplace=True)
     return df
+
+#def _apply_contextual_mapping(row):
+    """ Lógica fila por fila para tener contexto de la hoja (Fallback inicial) """
+    sheet = str(row.get('sheet_name', '')).upper()
+    logger.info(f"[LOG:CONTEXT] Procesando fila en hoja '{sheet}' con categoría original: '{row.get('system_category', '')}'")
+    category = str(row.get('system_category', '')).upper().strip()
+    
+    
+    if category in ['NAN', 'NONE', '', 'NULL']: category = ''
+
+    rules = {}
+    if any(k in sheet for k in ["ANALOGICAS"]):
+        rules = SHEET_SPECIFIC_MAPPING.get("ANALOGICAS", {})
+    elif any(k in sheet for k in ["ENTERAS"]):
+        rules = SHEET_SPECIFIC_MAPPING.get("ENTERAS", {})
+    elif any(k in sheet for k in ["DIGITAL"]):
+        rules = SHEET_SPECIFIC_MAPPING.get("DIGITAL", {})
+
+    result = rules.get(category)
+    
+
+    return result if result else (category if category else "hOLA")
+
+# =====================================================
+# LÓGICA DE REFINAMIENTO (Tu nueva función)
+# =====================================================
 
 def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
     if 'offset' in df.columns:
@@ -88,19 +163,27 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
         df['unit'] = df['unit'].astype(str).replace(['0', '---', 'None', 'nan'], ' ').str.strip()
 
     if 'system_category' in df.columns:
-        df['system_category'] = df['system_category'].astype(str).str.upper().str.strip()
-        mapping = {
-            'CONSIGNA': 'SET_POINT', 'E.ANALOGICA': 'ANALOG_INPUT', 'ALARMA': 'ALARM',
-            'COMANDO': 'COMMAND', 'E.DIGITAL': 'DIGITAL_INPUT', 'ESTADO': 'STATUS',
-            'PARAMETRO': 'CONFIG_PARAMETER', 'S.ANALOGICA': 'ANALOG_OUTPUT',
-            'S.DIGITAL': 'DIGITAL_OUTPUT', 'SISTEMA': 'SYSTEM',
-            'INPUT-OUTPUT': 'STATUS', 'DEFAULT': 'CONFIG_PARAMETER', 
-            'ALARMS': 'ALARM', 'COMMUNICATION': 'SYSTEM',
-            'INPUT': 'ANALOG_INPUT', 'OUTPUT': 'ANALOG_OUTPUT'
-        }
-        df['system_category'] = df['system_category'].replace(mapping)
+        # Pre-limpieza para asegurar que strings nulos sean manejables
+        df['system_category'] = df['system_category'].astype(str).replace(['nan', 'None', 'NaN'], '')
+        
+        # Log de valores únicos antes de procesar
+        raw_values = df['system_category'].unique().tolist()
+        #logger.info(f"[LOG:SYSTEM_CATEGORY] Valores originales: {raw_values}")
+
+        # --- APLICACIÓN DE LA LÓGICA CONTEXTUAL (FILA POR FILA) ---
+        #df['system_category'] = df.apply(_apply_contextual_mapping, axis=1)
+        df['system_category'] = df['system_category'].str.upper().str.strip()  
+        
+        # LOG de resultados agrupados por hoja
+        if 'sheet_name' in df.columns:
+            for sheet in df['sheet_name'].unique():
+                counts = df[df['sheet_name'] == sheet]['system_category'].value_counts().to_dict()
+                #logger.info(f"[LOG:MAPEO] Hoja '{sheet}' resumida: {counts}")
+
+        # Filtrado de filas que quedaron inválidas (aunque la lógica devuelve STATUS por defecto)
+        before_count = len(df)
         df = df[~df['system_category'].isin(['NONE', '','NAN', 'NULL'])].copy()
-    
+        
     if 'name' in df.columns:
         df['name'] = df['name'].astype(str).str.strip()
         df = df[~df['name'].isin(['NONE', '','NAN', 'None', 'nan'])].copy()
@@ -117,6 +200,7 @@ def _process_specific_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
     df['read'] = 0
     df['write'] = 0
+    
     if 'access_type' in df.columns:
         access = df['access_type'].astype(str).str.upper().str.strip()
         only_read = access == 'R'
@@ -127,14 +211,17 @@ def _process_access_permissions(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[rw, ['read', 'write']] = [3, 6]
         
         if 'system_category' in df.columns:
+            #logger.info("[LOG:PERMISOS] Ajustando permisos basados en categorías de sistema...")
             system_type = df['system_category'].astype(str).str.upper().str.strip()
+            
+            # Aplicación de lógica específica por categoría
             df.loc[only_read & system_type.isin(['ANALOG_INPUT', 'ANALOG_OUTPUT', 'SYSTEM', 'STATUS']), 'read'] = 3
-            df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 1
-            df.loc[only_read & system_type.isin(['STATUS', 'DIGITAL_INPUT']), 'read'] = 4
+            df.loc[only_read & system_type.isin(['ALARM']), 'read'] = 3
+            df.loc[only_read & system_type.isin(['STATUS', 'DIGITAL_INPUT']), 'read'] = 3
             df.loc[only_read & system_type.isin(['COMMAND']), 'write'] = 6
-            df.loc[rw & system_type.isin(['SET_POINT']), ['read', 'write']] = [3, 6]
-            df.loc[rw & system_type.isin(['CONFIG_PARAMETER', 'DIGITAL_OUTPUT']), ['read', 'write']] = [1, 5]
-            df.loc[rw & system_type.isin(['DIGITAL_INPUT']), 'read'] = 1
+            df.loc[rw & system_type.isin(['SET_POINT']), ['read', 'write']] = [3, 16]
+            df.loc[rw & system_type.isin(['CONFIG_PARAMETER', 'DIGITAL_OUTPUT']), ['read', 'write']] = [3, 16]
+            df.loc[rw & system_type.isin(['DIGITAL_INPUT']), 'read'] = 3
         
         df.drop(columns=['access_type'], inplace=True, errors='ignore')
     return df
@@ -159,14 +246,20 @@ def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
-    if "system_category" not in df.columns:
-        df["system_category"] = "STATUS"
+    if "system_category" not in df.columns or df["system_category"].isnull().all():
+        #logger.warning("[LOG:SYSTEM_CATEGORY] No se encontró columna de categoría. Asignando 'STATUS' por defecto.")
+        df["system_category"] = "HOLA"
     return df
 
 def _apply_system_configuratiom(df: pd.DataFrame) -> pd.DataFrame:
     if "system_category" in df.columns:
         system_type = df['system_category'].astype(str).str.upper().str.strip()
+        # Tags especiales para registros de sistema
+        #system_count = (system_type == "SYSTEM").sum()
+        #if system_count > 0:
+            #logger.info(f"[LOG:TAGS] Marcando {system_count} registros con tag 'library_identifier'.")
         df["tags"] = np.where(system_type.isin(["SYSTEM"]), '["library_identifier"]', "[]")
+        
     if "name" in df.columns:
         df["name"] = df["name"].astype(str).str.strip()
         duplicates = df.groupby("name").cumcount()
@@ -217,6 +310,7 @@ def _apply_range_rules(df: pd.DataFrame) -> pd.DataFrame:
 def _process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = df.columns.astype(str).str.strip()
     df = _apply_column_mapping(df)
+    # Aquí es donde se llama a la nueva lógica de mapeo
     df = _process_specific_columns(df)
     df = _process_access_permissions(df)
     df = _determine_data_length(df)
@@ -245,7 +339,6 @@ def process_excel(
     logger.info("--- Procesando Excel desde memoria (Bytes) ---")
 
     try:
-        # Cargar el workbook desde bytes
         excel_io = BytesIO(excel_content)
         wb = load_workbook(excel_io, data_only=True, read_only=False)
     except Exception as e:
@@ -254,7 +347,6 @@ def process_excel(
 
     logger.info(f"Hojas encontradas: {wb.sheetnames!r}")
 
-    # 1. Filtrar hojas relevantes (Lógica MV-BV)
     preferred_keywords = ["ANALOG", "ENTERAS", "DIGITAL", "ANALOGICAS", "INTEGER"]
     found = []
     
@@ -262,7 +354,6 @@ def process_excel(
         if any(k in s.upper().strip() for k in preferred_keywords):
             found.append(s)
 
-    # Fallback: si no encuentra las hojas por nombre, usa las 3 primeras
     if len(found) < 3:
         logger.warning("No se detectaron hojas estándar (Analogicas/Enteras/Digital). Usando las 3 primeras visibles.")
         found = wb.sheetnames[:3]
@@ -270,41 +361,27 @@ def process_excel(
     logger.info(f"Hojas a procesar: {found!r}")
     processed_dfs = []
 
-    # 2. Iterar sobre las hojas seleccionadas
     for sheet_name in found:
         try:
             ws = wb[sheet_name]
-            
-            # Verificar si la hoja tiene contenido suficiente
             if getattr(ws, "max_row", 0) <= header_row:
-                logger.warning(f"Saltando hoja '{sheet_name}' (parece vacía).")
                 continue
 
-            # Extraer encabezados
             header_cells = list(ws[header_row])
             headers = [str(c.value).strip() if c.value else f"col_{i}" for i, c in enumerate(header_cells)]
 
             rows = []
-            start_row = header_row + 1
-
-            # Leer filas
-            for row in ws.iter_rows(min_row=start_row, values_only=True):
-                if not any(row): continue # Saltar filas totalmente vacías
-                
-                # Crear diccionario seguro
+            for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+                if not any(row): continue 
                 row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
+                # CRÍTICO: Añadimos el nombre de la hoja para el mapeo contextual
                 row_dict["sheet_name"] = sheet_name
                 rows.append(row_dict)
 
             df_raw = pd.DataFrame(rows)
+            if df_raw.empty: continue
 
-            if df_raw.empty:
-                continue
-
-            # 3. Aplicar la lógica de transformación (MV-BV)
-            # Nota: Asegúrate de que _process_dataframe esté definida en este archivo
             df_proc = _process_dataframe(df_raw)
-            
             logger.info(f"-> Hoja '{sheet_name}' procesada: {len(df_proc)} filas.")
             processed_dfs.append(df_proc)
 
@@ -313,30 +390,18 @@ def process_excel(
             continue
 
     if not processed_dfs:
-        logger.warning("⚠ No se pudo procesar ninguna hoja correctamente.")
         return None
 
-    # 4. Unir y finalizar
-    logger.info("Unificando DataFrames...")
     df_total = pd.concat(processed_dfs, ignore_index=True)
+    df_total["id"] = range(1, len(df_total) + 1)
+    df_total = _add_default_columns(df_total)
+    
+    for col in LIBRARY_COLUMNS:
+        if col not in df_total.columns:
+            df_total[col] = None
+    
+    return df_total.reindex(columns=LIBRARY_COLUMNS)
 
-    try:
-        # Generar IDs y columnas finales
-        df_total["id"] = range(1, len(df_total) + 1)
-        df_total = _add_default_columns(df_total)
-        
-        # Asegurar todas las columnas de la librería
-        for col in LIBRARY_COLUMNS:
-            if col not in df_total.columns:
-                df_total[col] = None
-        
-        df_final = df_total.reindex(columns=LIBRARY_COLUMNS)
-        logger.info(f"DataFrame final generado con {len(df_final)} filas.")
-        return df_final
-
-    except Exception as e:
-        logger.error(f"Error integrando DataFrame final: {e}", exc_info=True)
-        return None
 # =====================================================
 # PROCESAMIENTO DE ARCHIVO COMPLETO
 # =====================================================
@@ -350,34 +415,22 @@ def process_excel_file_carel(path: str, header_row: int = 3) -> Optional[pd.Data
         logger.error(f"No se pudo abrir el archivo Excel: {e}")
         return None
 
-    logger.info(f"Hojas encontradas en el Excel: {wb.sheetnames!r}")
-
-    # Filtrar hojas relevantes
     preferred_keywords = ["ANALOG", "ENTERAS", "DIGITAL", "ANALOGICAS", "INTEGER"]
-    found = []
-    
-    for s in wb.sheetnames:
-        if any(k in s.upper().strip() for k in preferred_keywords):
-            found.append(s)
+    found = [s for s in wb.sheetnames if any(k in s.upper().strip() for k in preferred_keywords)]
 
     if len(found) < 3:
-        logger.warning("No se detectaron las 3 hojas estándar. Se intentarán usar las 3 primeras visibles.")
         found = wb.sheetnames[:3]
 
-    logger.info(f"Hojas seleccionadas para procesar: {found!r}")
     processed_dfs = []
 
-    # --- INICIO DEL BUCLE DE HOJAS ---
     for sheet in found:
         logger.info(f"Leyendo hoja: '{sheet}'...")
         ws = wb[sheet]
         
         if getattr(ws, "max_row", 0) <= header_row:
-            logger.warning(f"-> Saltando hoja '{sheet}' porque parece vacía.")
             continue
             
         try:
-            # Lectura de datos
             header_cells = list(ws[header_row])
             headers = [str(c.value).strip() if c.value else f"col_{i}" for i, c in enumerate(header_cells)]
             
@@ -385,44 +438,31 @@ def process_excel_file_carel(path: str, header_row: int = 3) -> Optional[pd.Data
             for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
                 if not any(row): continue
                 row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
+                # CRÍTICO: Añadimos el nombre de la hoja para el mapeo contextual
                 row_dict["sheet_name"] = sheet
                 data_rows.append(row_dict)
             
             df_raw = pd.DataFrame(data_rows)
-
-            if df_raw.empty:
-                logger.warning(f"-> La hoja '{sheet}' no contenía datos válidos.")
-                continue
+            if df_raw.empty: continue
                 
-            # Procesamiento
             df_proc = _process_dataframe(df_raw)
             processed_dfs.append(df_proc)
-            
-            # LOG DE PROGRESO CORRECTO
             logger.info(f"-> OK: Hoja '{sheet}' procesada correctamente ({len(df_proc)} filas).")
             
         except Exception as e:
             logger.error(f"-> ERROR procesando hoja '{sheet}': {e}", exc_info=True)
-    # --- FIN DEL BUCLE ---
 
     if not processed_dfs:
-        logger.error("No se pudo procesar ninguna hoja correctamente.")
         return None
 
-    logger.info("--- Unificando datos de todas las hojas ---")
     final_df = pd.concat(processed_dfs, ignore_index=True)
-    
-    # Generar IDs y columnas finales
     final_df["id"] = range(1, len(final_df) + 1)
     final_df = _add_default_columns(final_df)
     
-    # Asegurar estructura final
-    logger.info("Aplicando estructura final de columnas...")
     for col in LIBRARY_COLUMNS:
         if col not in final_df.columns:
             final_df[col] = None
             
-    logger.info(f"Proceso completado. Total filas generadas: {len(final_df)}")
     return final_df.reindex(columns=LIBRARY_COLUMNS)
 
 # =====================================================

@@ -66,7 +66,7 @@ class TableMixin:
                         disable
                     >
                         <q-tooltip class="bg-orange text-black">
-                            Para guardar los cambios usar el boton "Guardar Correcciones".
+                            Para guardar los cambios usar el boton "Guardar Cambios".
                         </q-tooltip>
                     </q-btn>
 

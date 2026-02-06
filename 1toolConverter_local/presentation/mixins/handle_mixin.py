@@ -334,8 +334,23 @@ class HandleMixin:
                 # === Actualizar grouped_data ===
                 selected_row_df = self.processed_data.loc[self.processed_data['id'].astype(str) == row_id].copy()
                 selected_row_df = selected_row_df.reindex(columns=self.grouped_data.columns, fill_value=np.nan)
-                self.grouped_data = self.grouped_data[~self.grouped_data['id'].astype(str).isin([row_id])]
-                self.grouped_data = pd.concat([selected_row_df, self.grouped_data], ignore_index=True)
+
+                # 1. Extraemos la fila actualizada del DataFrame principal
+                selected_row_df = self.processed_data.loc[self.processed_data['id'].astype(str) == row_id].copy()
+
+                # 2. Verificamos si la tabla de grupos existe o está vacía
+                if self.grouped_data is None or self.grouped_data.empty:
+                    # Si está vacía, la inicializamos directamente con esta fila
+                    self.grouped_data = selected_row_df
+                else:
+                    # Si ya tiene datos, aseguramos que las columnas coincidan
+                    selected_row_df = selected_row_df.reindex(columns=self.grouped_data.columns, fill_value=np.nan)
+                    
+                    # Eliminamos la versión antigua de esta fila (por ID) para evitar duplicados
+                    self.grouped_data = self.grouped_data[~self.grouped_data['id'].astype(str).isin([row_id])]
+                    
+                    # Añadimos la fila actualizada al principio
+                    self.grouped_data = pd.concat([selected_row_df, self.grouped_data], ignore_index=True)
 
                 # === Actualizar interfaz ===
                 self.update_group_table()

@@ -317,12 +317,12 @@ def finalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         "current_value": np.nan,
         "current_error_status": np.nan,
         "notes": np.nan,
-        "category": np.nan,
+        #"category": np.nan,
     }
     for col, val in defaults.items():
         if col not in df.columns:
             df[col] = val
-    df = df.reindex(columns=LIBRARY_COLUMNS, fill_value=np.nan)
+    df = df.reindex(columns=LIBRARY_COLUMNS, fill_value="0")
     return df
 
 def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
