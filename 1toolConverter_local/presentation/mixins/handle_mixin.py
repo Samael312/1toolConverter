@@ -549,43 +549,37 @@ class HandleMixin:
             ui.notify(f'Error al ajustar registros: {ex}', type='negative')
     
     def toggle_base(self):
-        """Intercambia entre Base 0 y Base 1 y ajusta los registros."""
-        if self.processed_data is None or self.processed_data.empty:
-            ui.notify('No hay datos cargados para ajustar', type='warning')
+        """Ajusta los registros solo en la vista de la tabla (UI)."""
+        if not self.table.rows:
+            ui.notify('No hay datos en la tabla para ajustar', type='warning')
             return
 
-        # Determinar nueva base y el desplazamiento (offset)
-        if self.current_base == 1:
-            new_base = 0
-            offset = -1
-            new_label = "Base 0"
-            new_color = "negative" # Rojo para alertar que es Base 0
-            msg = "Registros disminuidos en 1 (Ahora Base 0)"
-        else:
-            new_base = 1
-            offset = 1
-            new_label = "Base 1"
-            new_color = "primary" # Azul estándar
-            msg = "Registros incrementados en 1 (Ahora Base 1)"
-
+        # Determinamos el desplazamiento
+        offset = -1 if self.current_base == 1 else 1
+        new_base = 0 if self.current_base == 1 else 1
+        
         try:
-            # 1. Aplicar el cambio al DataFrame
-            # Aseguramos que la columna sea numérica para evitar errores de concatenación
-            self.processed_data['register'] = pd.to_numeric(self.processed_data['register'], errors='coerce')
-            self.processed_data['register'] += offset
-            
-            # 2. Actualizar el estado de la clase
+            # ACTUALIZAMOS SOLO LAS FILAS DE LA TABLA (UI)
+            for row in self.table.rows:
+                # Obtenemos el valor actual, si no es número usamos 0
+                current_reg = pd.to_numeric(row.get('register'), errors='coerce')
+                if pd.isna(current_reg):
+                    current_reg = 0
+                
+                # Calculamos el nuevo valor y lo guardamos como STRING limpio
+                new_val = int(current_reg + offset)
+                row['register'] = str(new_val)
+
+            # Actualizamos el estado visual
             self.current_base = new_base
+            self.base_selector.text = f"Base {new_base}"
+            self.base_selector.props(f'color={"negative" if new_base == 0 else "primary"}')
             
-            # 3. Actualizar la UI del botón
-            self.base_selector.text = new_label
-            self.base_selector.props(f'color={new_color}')
+            # Refrescamos la tabla para que se vean los cambios
+            self.table.update()
             
-            # 4. Refrescar la tabla y notificar
-            self.display_table()
-            self.update_group_table()
-            ui.notify(msg, type='info', icon='sync')
-            
+            ui.notify(f"Registros ajustados a Base {new_base}. Haz clic en Guardar para confirmar.", type='info')
+
         except Exception as e:
             logger.error(f"Error en toggle_base: {e}")
-            ui.notify("Error al ajustar la base de registros", type='negative')
+            ui.notify("Error al ajustar la base", type='negative')

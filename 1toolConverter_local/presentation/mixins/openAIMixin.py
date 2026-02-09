@@ -4,9 +4,11 @@ import re
 import pandas as pd
 from nicegui import ui
 from openai import AsyncOpenAI
+from dotenv import load_dotenv
 
 # Tu Regex definida
 ALLOWED_CHARS_REGEX = r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]"
+load_dotenv()
 
 class OpenAIMixin:
     
@@ -26,7 +28,7 @@ class OpenAIMixin:
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": user_msg}
                 ],
-                max_tokens=60,
+                max_tokens=20,
                 temperature=0.3
             )
             return response.choices[0].message.content.strip().strip('"').strip("'")
@@ -76,25 +78,22 @@ class OpenAIMixin:
 
         # --- PROMPTS ---
         
-        # PROMPT 1: Limpieza y Extracción
+        # PROMPT 1: Limpieza
         system_clean = (
-            "Eres un técnico experto. Tu tarea es extraer y limpiar descripciones técnicas. "
-            "INPUT TIPICO: 'N[VAR_NAME], D[Descripción real], R[0,1]'. "
+            "Eres un técnico experto. Extrae y limpia descripciones. "
+            "REGLA DE ORO: Máximo 55 caracteres. Es un límite estricto de espacio. "
             "INSTRUCCIONES: "
-            "1. Extrae SOLO el texto dentro de D[...] si existe. Si no, usa todo el texto. "
-            "2. Elimina nombres de variables técnicas (ej: N_A4_CONTROL). "
-            "3. Si la descripción es críptica, PARAFRASEALA para que sea legible en español. "
-            "4. Si el input es basura (ej: '@', '?', '0'), devuelve la palabra 'INVALIDO'. "
-            "5. CRITICO: Usa SOLO letras, números y estos símbolos: . , ; : _ - / = % ° ( ) "
-            "Máximo 55 caracteres."
+            "1. Usa estilo telegrama: omite artículos (el, la, los) y usa abreviaturas. "
+            "2. Ejemplo: 'Control de ventiladores' -> 'Ctrl ventiladores'. "
+            "3. Usa SOLO: a-z, 0-9 y . , ; : _ - / = % ° ( ) "
+            "4. Si es INVALIDO devuelve esa palabra."
         )
 
-        # PROMPT 2: Generación desde Nombre (Fallback)
+        # PROMPT 2: Generación
         system_generate = (
-            "Eres un técnico experto. Genera una descripción técnica breve basada en el NOMBRE del producto. "
-            "Prioriza la función del dispositivo. "
-            "Usa SOLO letras, números y: . , ; : _ - / = % ° ( ) "
-            "Máximo 55 caracteres."
+            "Genera una descripción técnica de MÁXIMO 55 CARACTERES. "
+            "Sé ultra conciso. Usa abreviaturas (Temp, Ctrl, Comp, Vel, Act). "
+            "Usa SOLO: a-z, 0-9 y . , ; : _ - / = % ° ( )"
         )
 
         # --- BUCLE DE PROCESAMIENTO ---
@@ -110,10 +109,13 @@ class OpenAIMixin:
             prompt_user = f"LIMPIAR: '{original_desc}'"
             cleaned_text = await self._call_openai_simple(client, system_clean, prompt_user)
 
-            # Validamos el resultado del Intento 1
+            # Validamos longitud y caracteres
             is_valid = False
             if cleaned_text and cleaned_text != "INVALIDO":
-                # Verificamos Regex
+                # Si la IA se pasó por poco, la truncamos nosotros
+                if len(cleaned_text) > 55:
+                    cleaned_text = cleaned_text[:55].strip()
+                    
                 if self._validate_chars(cleaned_text):
                     new_val = cleaned_text
                     is_valid = True
@@ -187,12 +189,14 @@ class OpenAIMixin:
         # 3. Prompt específico para generar desde cero
         system_prompt = (
             "Eres un experto técnico en empresa Industrias de Tecnologías Aplicadas de Refrigeración y Conservación. "
-            "Tu tarea: Generar una descripción técnica concisa (máx 60 chars) basada en el NOMBRE del producto. "
+            "Tu tarea: Generar una descripción técnica concisa basada en el NOMBRE del producto. "
             "Reglas: "
             "1. Usa abreviaturas estándar si es largo. "
             "2. Prioriza: ¿Que es? o ¿Para que sirve?. "
             "3. Elimina palabras como 'Oferta', 'Nuevo'. "
             "Devuelve SOLO la descripción."
+            "Usa SOLO letras, números y: . , ; : _ - / = % ° ( ) "
+            "Máximo 55 caracteres."
         )
         
         user_template = "Descripción: '{val}'"

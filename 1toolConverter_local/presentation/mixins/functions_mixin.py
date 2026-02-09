@@ -411,44 +411,76 @@ class FunctionMixin:
             except:
                 pass
 
+
     @staticmethod
     def _heavy_processing_logic(rows, df_main, df_group, only_errors):
-        import re # Importar dentro para el proceso hijo
+        import re
+        # El mismo patrón que usas en tu re.sub
         regex_pattern = re.compile(r'^[a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]*$')
         saved_count = 0
         
-        # Optimizamos el DataFrame poniendo 'id' como índice para acceso instantáneo
+        # 1. Preparación de índices
+        df_main['id'] = df_main['id'].astype(str)
         df_main = df_main.set_index('id')
         if df_group is not None:
+            df_group['id'] = df_group['id'].astype(str)
             df_group = df_group.set_index('id')
 
+        valid_db_columns = set(df_main.columns) - {'error_flag'}
+
+        def clean_val(v):
+            if v is None or (isinstance(v, float) and pd.isna(v)): return ""
+            try:
+                f_val = float(v)
+                if f_val.is_integer(): return str(int(f_val))
+                return str(f_val)
+            except: return str(v).strip()
+
         for row in rows:
-            if not only_errors or row.get('error_flag') == 1:
-                row_id = row.get('id')
-                row_updated = False
-                
-                # Columnas a procesar
-                cols = [c for c in row.keys() if c not in ['id', 'error_flag']]
-                
-                for field in cols:
-                    val = str(row.get(field, '')).strip()
-                    limit = 60 if field == 'description' else 255
-                    
-                    if len(val) <= limit and regex_pattern.match(val):
-                        # Actualización instantánea por índice (.at es más rápido que .loc)
-                        if row_id in df_main.index:
-                            df_main.at[row_id, field] = val
-                            df_main.at[row_id, 'error_flag'] = 0
-                            row_updated = True
-                        
-                        if df_group is not None and row_id in df_group.index:
-                            df_group.at[row_id, field] = val
-                            df_group.at[row_id, 'error_flag'] = 0
+            row_id = str(row.get('id'))
+            if row_id not in df_main.index:
+                continue
 
-                if row_updated:
-                    saved_count += 1
+            row_was_changed = False
+            
+            # --- PROCESAMIENTO DE COLUMNAS ---
+            for field in [k for k in row.keys() if k in valid_db_columns]:
+                new_val = clean_val(row.get(field))
+                old_val = clean_val(df_main.at[row_id, field])
 
-        # Volvemos a poner el ID como columna antes de devolver
+                if new_val != old_val:
+                    df_main.at[row_id, field] = new_val
+                    row_was_changed = True
+                    if df_group is not None and row_id in df_group.index:
+                        if field in df_group.columns:
+                            df_group.at[row_id, field] = new_val
+
+            # --- LÓGICA DE ERROR (Específica para 'description') ---
+            # Obtenemos la descripción actual (ya actualizada arriba)
+            desc = df_main.at[row_id, 'description']
+            
+            # Replicamos exactamente tu validate_description_e:
+            is_error = False
+            
+            if not desc: # Caso None o vacío ""
+                is_error = True
+            elif not regex_pattern.match(desc): # Caracteres no permitidos
+                is_error = True
+            elif len(desc) > 60: # Límite suave/duro (según tu código > 60 ya es error)
+                is_error = True
+            
+            new_flag = 1 if is_error else 0
+            old_flag = int(df_main.at[row_id, 'error_flag'])
+
+            if new_flag != old_flag:
+                df_main.at[row_id, 'error_flag'] = new_flag
+                row_was_changed = True
+                if df_group is not None and row_id in df_group.index:
+                    df_group.at[row_id, 'error_flag'] = new_flag
+
+            if row_was_changed:
+                saved_count += 1
+
         return df_main.reset_index(), (df_group.reset_index() if df_group is not None else None), saved_count
     
     def refresh_table_view(self):
