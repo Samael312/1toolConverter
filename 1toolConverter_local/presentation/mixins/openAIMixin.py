@@ -7,7 +7,7 @@ from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 # Tu Regex definida
-ALLOWED_CHARS_REGEX = r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]"
+ALLOWED_CHARS_REGEX = r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓ'Ú()]"
 load_dotenv()
 
 class OpenAIMixin:

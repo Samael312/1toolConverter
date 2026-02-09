@@ -4,12 +4,17 @@ Este módulo no genera interfaz ni escribe archivos.
 Solo devuelve un DataFrame procesado para uso en la UI de main.py.
 """
 
+from asyncio import run
+import os
 import pandas as pd
 import numpy as np
 import re
 import logging
 from io import BytesIO
 from typing import Optional, List
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 # =====================================================
 # CONFIGURACIÓN DE LOGGING
@@ -342,11 +347,43 @@ def _apply_sampling_rules(df: pd.DataFrame) -> pd.DataFrame:
     df["sampling"] = df["system_category"].map(mapping).fillna(0)
     return df
 
+def merge_with_template(df_user: pd.DataFrame, template_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Combina la plantilla base con los datos del usuario.
+    Regla: Mantiene TODO lo de la plantilla. Agrega lo del usuario solo si el 'register' no existe.
+    """
+    if template_df is None or template_df.empty:
+        return df_user
+
+    # Normalización de registros para comparación exacta
+    def _norm_reg(v):
+        try: return str(int(float(v)))
+        except: return str(v).strip()
+
+    template_df['register_key'] = template_df['register'].apply(_norm_reg)
+    df_user['register_key'] = df_user['register'].apply(_norm_reg)
+
+    # Identificar registros del usuario que NO están en la plantilla
+    existing_regs = set(template_df['register_key'].unique())
+    df_new_entries = df_user[~df_user['register_key'].isin(existing_regs)].copy()
+
+    # Combinar: Plantilla primero, luego lo nuevo del usuario
+    df_combined = pd.concat([template_df, df_new_entries], ignore_index=True)
+
+    # Limpieza: eliminar la llave temporal y reordenar por registro
+    df_combined.drop(columns=['register_key'], inplace=True)
+    df_combined = df_combined.sort_values(by='register').reset_index(drop=True)
+    
+    # Re-generar IDs secuenciales para mantener consistencia
+    df_combined['id'] = range(1, len(df_combined) + 1)
+    
+    return df_combined
+
 # =====================================================
 # FUNCIÓN PRINCIPAL
 # =====================================================
 
-def convert_excel_to_dataframe(file_bytes: bytes) -> Optional[pd.DataFrame]:
+def convert_excel_to_dataframe(file_bytes: bytes, df_plantilla: pd.DataFrame = None) -> Optional[pd.DataFrame]:
     """Procesa un archivo Excel (bytes) y devuelve un DataFrame procesado."""
     try:
         xls = pd.ExcelFile(BytesIO(file_bytes))
@@ -407,148 +444,149 @@ def convert_excel_to_dataframe(file_bytes: bytes) -> Optional[pd.DataFrame]:
             continue
 
     if not processed_dfs:
-        logger.warning("No se procesaron hojas válidas en el Excel.")
-        return None
+        df_usuario_raw = pd.DataFrame(columns=LIBRARY_COLUMNS)
+    else:
+        df_usuario_raw = pd.concat(processed_dfs, ignore_index=True)
 
-    final_df = pd.concat(processed_dfs, ignore_index=True)
-    final_df = final_df[pd.to_numeric(final_df["register"], errors="coerce").notna()].copy()
-    final_df["register"] = final_df["register"].astype(int)
-    final_df["id"] = range(1, len(final_df) + 1)
-    final_df["view"] = "simple"
-    final_df = finalize_dataframe(final_df)
+    # 2. USA EL PARÁMETRO EN LUGAR DE CARGARLO AQUÍ
+    if df_plantilla is not None:
+        df_final = merge_with_template(df_usuario_raw, df_plantilla)
+    else:
+        df_final = df_usuario_raw
 
-    logger.info(f"Procesamiento finalizado correctamente ({len(final_df)} filas).")
-    return final_df
+    # 3. Máscaras a eliminar (por name)
+    masks_a_quitar = [
+        #Filtado ALARMS
+        "LIST_", "ALARM_NOLINK", "HORA_INICIO_", "MINUTO_INICIO_", "NUM_ALARMA", "LIST_ALARMS", "WARNING_", "NUM_", "ALARM_REG", "ALARM_PB",
+        #Filtado ANALOG_INPUT
+        "SONDAS_",
+        #Filtado ANALOG_OUTPUT
+        "AO_OUT", "SALIDA_ANALOG_",
+        #Filtrado COMMAND
+        "KB_ONOFF", "RESET_DATALOG_"
+        #Filtrado CONFIG_PARAMETER
+        "SALIDAS_ANALOG_", "PASSWORD_", "ENTRADAS_DIGITALES_", "POLARIDAD_", "FORCE_",
+        #Filtrado DIGITAL_INPUT
+        "DI_OUT",
+        #Filtrado DIGITAL_OUTPUT
+        "RELE_SALIDA_", "RELE_TEST_",
+        #Filtrado STATUS
+        "ENABLE_", "EXPORT_", "USB_", "TEST_", "LOAD_", "SAVE_", "PASSWORD_", "TIMER_", "SEL_", "STATUS_", "CURRENT_", "SET_", "LEER_", "BLACKOUT_", "EN_COMUNICAION_", "ST_CLOCK_", "SIMULADOR", "DEPURACION", "CICLO", "V-LANG", "V_ICXVAR", "SYS_BUZ",
+        #Filtrado SYSTEM
+        "VERSION_",
+        #OTROS
+        "EN_REG", "RESET_LOG", "EXPORT_LOG", "TIME_BETWEEN_"
+    ]
+
+    if "name" in df_final.columns:
+        patron = "|".join(masks_a_quitar)
+        filas_antes = len(df_final)
+
+        df_final = df_final[
+            ~df_final["name"].astype(str).str.contains(patron, na=False)
+        ].copy()
+
+        logger.info(
+            f"Filtrado por name completado. "
+            f"Eliminadas {filas_antes - len(df_final)} filas. "
+            f"Quedan {len(df_final)}."
+        )
+
+    # 4. Finalización
+    df_final = df_final[
+        pd.to_numeric(df_final["register"], errors="coerce").notna()
+    ].copy()
+    df_final["view"] = "simple"
+    df_final = finalize_dataframe(df_final)
+
+    logger.info(f"Proceso completado. Filas finales: {len(df_final)}")
+    return df_final
 
 # =====================================================
-# EJECUCIÓN POR LÍNEA DE COMANDO (actualizada con export intermedio)
+# EJECUCIÓN POR LÍNEA DE COMANDO
 # =====================================================
 if __name__ == "__main__":
     import argparse
     import sys
     from pathlib import Path
+    import pandas as pd
+
+    def load_template(excel_path: Path) -> pd.DataFrame:
+        try:
+            df_template = pd.read_excel(excel_path)
+            return df_template
+        except Exception as e:
+            logger.error(f"Error cargando plantilla: {e}", exc_info=True)
+            return pd.DataFrame()
+
+    # 1. Definimos la ruta por defecto de la plantilla
+    default_template_path = Path(BASE_DIR) / "Plantilla kiControl.xlsx"
 
     parser = argparse.ArgumentParser(
-        description="Procesa un archivo Excel de variables y genera DataFrames intermedios y finales."
+        description="Procesa un archivo Excel de variables y lo mezcla con la plantilla maestra."
     )
     parser.add_argument(
-        "--input", "-i", required=True, help="Ruta al archivo Excel de entrada (.xlsx)"
+        "--input", "-i", required=True, help="Ruta al archivo Excel del usuario (.xlsx)"
     )
     parser.add_argument(
-        "--output", "-o", default="procesado_final.xlsx",
-        help="Ruta del archivo Excel de salida final"
+        "--template", "-t",
+        default=str(default_template_path),
+        help="Ruta a la plantilla maestra (.xlsx)"
+    )
+    parser.add_argument(
+        "--output", "-o", default="resultado_ipro.xlsx",
+        help="Ruta del archivo Excel de salida"
     )
     parser.add_argument(
         "--preview", "-p", action="store_true",
-        help="Muestra las primeras filas del DataFrame procesado antes de exportar"
+        help="Muestra las primeras filas en consola"
     )
 
     args = parser.parse_args()
     input_path = Path(args.input)
+    template_path = Path(args.template)
     output_path = Path(args.output)
-    intermedio_path = output_path.with_name(output_path.stem + "_intermedio.xlsx")
 
+    # 1. Validaciones iniciales
     if not input_path.exists():
         logger.error(f"El archivo de entrada no existe: {input_path}")
         sys.exit(1)
 
-    logger.info(f" Leyendo archivo Excel: {input_path}")
+    # 2. Cargar Plantilla (EXCEL, no CSV)
+    logger.info(f"Cargando plantilla desde: {template_path}")
+    #logger.info(f"BASE_DIR = {BASE_DIR}")
+    #logger.info(f"Ruta final plantilla = {default_template_path}")
+    df_plantilla = pd.DataFrame()
+    if template_path.exists():
+        df_plantilla = load_template(template_path)
+        if df_plantilla.empty:
+            logger.warning("La plantilla se cargó vacía. Continuando solo con input.")
+        else:
+            logger.info(f"Plantilla cargada: {len(df_plantilla)} registros.")
+    else:
+        logger.warning("Archivo de plantilla no encontrado. Continuando solo con input.")
 
+    # 3. Procesar archivo mediante la función principal
     try:
-        with open(input_path, "rb") as f:
-            file_bytes = f.read()
-            # Procesamiento principal del Excel
-            xls = pd.ExcelFile(BytesIO(file_bytes))
-            logger.info(f"Archivo Excel leído con {len(xls.sheet_names)} hojas.")
+        file_bytes = input_path.read_bytes()
 
-            processed_dfs = []
-            for sheet_name in xls.sheet_names:
-                logger.info(f"Procesando hoja: {sheet_name}")
-                try:
-                    df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
-                    if len(df) > 0:
-                        df = df.drop(df.index[0]).reset_index(drop=True)
-                    df.columns = df.columns.astype(str).str.strip()
-                    df.rename(columns=COLUMN_MAPPING, inplace=True, errors="ignore")
-                    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-                    for col in ['category', 'name', 'description', 'attribute', 'groups']:
-                        if col in df.columns:
-                            df[col] = df[col].astype(str).str.strip()
+        # Llamamos a la función que ya tiene toda la lógica de limpieza y merge
+        df_final = convert_excel_to_dataframe(file_bytes, df_plantilla=df_plantilla)
 
-                    if 'register' in df.columns:
-                        df['register'] = df['register'].apply(register_to_decimal)
+        if df_final is not None and not df_final.empty:
+            # Vista previa opcional
+            if args.preview:
+                print("\n--- VISTA PREVIA DEL RESULTADO ---")
+                print(df_final.head(15).to_string(index=False))
+                print("----------------------------------\n")
 
-                    if 'dimension' in df.columns:
-                        df = expand_dimension_to_rows_name_bits(df, default_bits=1)
-                        df.drop(columns=['dimension'], inplace=True, errors='ignore')
-
-                    if 'description' in df.columns:
-                        df['description'] = df['description'].astype(str).str.slice(0, 60)
-
-                    df = categorize_system(df)
-                    if df.empty:
-                        logger.warning(f"La hoja '{sheet_name}' no contiene categorías válidas, se omitirá.")
-                        continue
-
-                    df = apply_min_max(df)
-                    df = apply_rw_permissions(df)
-                    df = assign_tags(df)
-                    df = fix_duplicate_names(df)
-                    df = _apply_mask_logic(df)
-                    df = _apply_sampling_rules(df)
-
-                    if 'length' in df.columns:
-                        df['length'] = df['length'].apply(normalize_length)
-
-                    df['unit'] = df.get('unit', pd.Series("", index=df.index)).astype(str).replace(
-                        {"nan": "", "None": "", "NaN": ""}
-                    )
-                    df['offset'] = 0.0
-
-                    processed_dfs.append(df)
-
-                except Exception as e:
-                    logger.error(f"Error procesando hoja {sheet_name}: {e}", exc_info=True)
-                    continue
-
-            if not processed_dfs:
-                logger.warning("No se procesaron hojas válidas en el Excel.")
-                sys.exit(0)
-
-            df_intermedio = pd.concat(processed_dfs, ignore_index=True)
-            logger.info(f" DataFrame intermedio generado ({len(df_intermedio)} filas)")
-
-            # Guardar versión intermedia
-            try:
-                df_intermedio.to_excel(intermedio_path, index=False)
-                logger.info(f" Archivo intermedio exportado: {intermedio_path.resolve()}")
-            except Exception as e:
-                logger.warning(f"No se pudo guardar el archivo intermedio: {e}")
-
-            # Procesamiento final
-            df_final = df_intermedio[
-                pd.to_numeric(df_intermedio["register"], errors="coerce").notna()
-            ].copy()
-            df_final["register"] = df_final["register"].astype(int)
-            df_final["id"] = range(1, len(df_final) + 1)
-            df_final["view"] = "simple"
-            df_final = finalize_dataframe(df_final)
+            # 4. Exportar resultado
+            df_final.to_excel(output_path, index=False)
+            logger.info(f"Archivo final exportado en: {output_path.resolve()}")
+        else:
+            logger.error("El proceso no generó datos válidos.")
+            sys.exit(1)
 
     except Exception as e:
-        logger.error(f"Error general al procesar el archivo: {e}", exc_info=True)
-        sys.exit(1)
-
-    if df_final is None or df_final.empty:
-        logger.warning(" El DataFrame final está vacío. No se generará archivo de salida.")
-        sys.exit(0)
-
-    if args.preview:
-        logger.info("Vista previa del DataFrame final:")
-        print(df_final.head(20).to_string(index=False))
-
-    try:
-        df_final.to_excel(output_path, index=False)
-        logger.info(f" Archivo final exportado correctamente: {output_path.resolve()}")
-    except Exception as e:
-        logger.error(f"Error al exportar el Excel final: {e}", exc_info=True)
+        logger.error(f"Error crítico en la ejecución: {e}", exc_info=True)
         sys.exit(1)

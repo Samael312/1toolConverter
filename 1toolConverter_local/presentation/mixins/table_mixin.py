@@ -32,7 +32,7 @@ class TableMixin:
             f"props.row.{field_name} !== null && "
             f"String(props.row.{field_name}).length > 0 && "
             f"String(props.row.{field_name}).length <= 60 && "
-            f"/^[a-zA-Z0-9\\s\\.,;:_\\-/=%°CñÑáéíóúÁÉÍÓÚ()]*$/.test(String(props.row.{field_name}))"
+            f"/^[a-zA-Z0-9\\s\\.,;:_\\-/=%°CñÑáéíóúÁÉÍÓÚ'()]*$/.test(String(props.row.{field_name}))"
         )
 
         slot_html = f"""

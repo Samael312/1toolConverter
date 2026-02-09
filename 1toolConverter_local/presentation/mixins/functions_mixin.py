@@ -19,7 +19,7 @@ class FunctionMixin:
                 return "El texto está vacío"
             
             # 1. Limpiar caracteres no válidos y comparar
-            cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]", "", texto)
+            cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ'()]", "", texto)
             if cleaned != texto:
                 return "Caracteres no permitidos encontrados"
 

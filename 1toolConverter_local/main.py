@@ -2,6 +2,7 @@
 Aplicación Conversor Universal (Keyter / iPro)
 Punto de entrada principal y lógica de negocio.
 """
+import pandas as pd
 from nicegui import ui, run, app
 import os
 import logging
@@ -9,7 +10,7 @@ import asyncio
 from backend.Keyter.KeyterNew import process_excel as keyter_new_process
 from backend.Keyter.Keyter import process_html as keyter_html_process
 from backend.Keyter.KeyterCarel import process_excel as keyter_process_carel
-from backend.iPro.ipro import convert_excel_to_dataframe as ipro_convert_excel
+from backend.iPro.ipro import convert_excel_to_dataframe as ipro_convert_excel, merge_with_template
 from backend.Cefa.cefa import process_pdf as cefa_process_pdf
 from backend.Dixell.dixell2 import process_multiple_pdfs as dixell_process_pdf
 from presentation.ui import HTMLConverterUI
@@ -60,8 +61,21 @@ def detect_keyter_excel_type(file_bytes: bytes) -> str:
     except Exception as e:
         logger.error(f"Error detectando tipo de Excel: {e}")
         return "UNKNOWN"
+
+# Ejemplo de cómo cargar la plantilla CSV proporcionada
+def load_template(excel_path: str) -> pd.DataFrame:
+    try:
+        # Cargamos el CSV con los parámetros base
+        df_template = pd.read_excel(excel_path)
+        # Aseguramos que tenga las columnas correctas definidas en LIBRARY_COLUMNS
+        return df_template
+    except Exception as e:
+        logger.error(f"Error cargando plantilla: {e}")
+        return pd.DataFrame()
+
+
+
     
-# 2. Convertimos esta función a ASYNC
 async def unified_process_file(mode: str, filename, file_bytes):
     """
     Ejecuta el backend correspondiente en un hilo separado para no congelar la UI.
@@ -102,8 +116,18 @@ async def unified_process_file(mode: str, filename, file_bytes):
                     return None
 
         elif mode == "iPro":
-            logger.info("Procesando archivo Excel con backend iPro")
-            return await run.io_bound(ipro_convert_excel, file_bytes)
+            logger.info("Procesando archivo Excel con backend iPro + Plantilla Maestra")
+            
+            # 1. Definimos la ruta de la plantilla (ajusta si es necesario)
+            template_path = os.path.join(BASE_DIR, "backend", "iPro", "Plantilla kiControl.xlsx")
+            
+            # 2. Cargamos la plantilla
+            df_plantilla = await run.io_bound(load_template, template_path)
+            
+            if df_plantilla.empty:
+                logger.warning("No se pudo cargar la plantilla maestra. Se procesará solo el archivo del usuario.")
+            
+            return await run.io_bound(ipro_convert_excel, file_bytes, df_plantilla=df_plantilla)
         
         elif mode == "Cefa":
             logger.info("Procesando archivo PDF con backend Cefa")
@@ -112,6 +136,8 @@ async def unified_process_file(mode: str, filename, file_bytes):
         else:
             ui.notify("Modo no reconocido", type='warning')
             return None
+        
+        
 
     except Exception as e:
         logger.exception("Error en unified_process_file:")

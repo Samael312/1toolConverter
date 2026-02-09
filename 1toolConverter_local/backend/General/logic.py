@@ -6,7 +6,7 @@ def validate_description_text(texto: str) -> bool | str:
     """Valida un texto y devuelve True o el mensaje de error."""
     if texto is None: return "El texto está vacío"
     
-    cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ()]", "", texto)
+    cleaned = re.sub(r"[^a-zA-Z0-9\s\.,;:_\-/=%°CñÑáéíóúÁÉÍÓÚ'()]", "", texto)
     if cleaned != texto: return "Caracteres no permitidos encontrados"
     if len(texto) == 0: return "La descripción no puede estar vacía"
     if len(texto) > 150: return "Máximo 150 caracteres permitidos"
