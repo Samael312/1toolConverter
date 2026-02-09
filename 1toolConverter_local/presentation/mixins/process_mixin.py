@@ -120,6 +120,9 @@ class ProcessMixin:
 
                     # Mostrar las tablas 
                     self.display_table()
+                    self.refresh_filter_options()
+                    self.current_base = 1
+                    self.base_selector.text = "Base 1"
                     self.update_group_table()
                     
                     # Notificación final

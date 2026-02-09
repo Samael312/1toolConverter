@@ -262,6 +262,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
                 self.process_button.disable()
 
     def _create_table_section(self):
+        self.current_base = 1 
         with ui.card().classes('w-full p-0 rounded-xl shadow-md border border-slate-200 overflow-hidden bg-white') as table_card:
             # Header de la tarjeta
             with ui.row().classes('p-4 bg-slate-50 border-b border-slate-200 items-center justify-between'):
@@ -274,6 +275,14 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
                 ui.button('Guardar Cambios', on_click=self.save_all_changes).props('outline color=positive icon=save rounded')
                 ui.button('IA: Corregir Errores o Rellenar', on_click=self.ai_fix_errors, icon='auto_fix_high').props('outline color=purple rounded').tooltip('Usa GPT para corregir formato y longitud automáticamente')
                 #ui.button('IA: Rellenar Vacíos', on_click=self.ai_fill_empty, icon='settings').props('outline color=teal rounded').tooltip('Genera descripciones para celdas vacías basándose en otras columnas')
+                self.base_selector = ui.button(
+                    "Base 1", 
+                    on_click=self.toggle_base
+                ).props("color=primary outline rounded icon=numbers")
+                self.base_selector.tooltip("Click para cambiar a Base 0 (restar 1 a todos los registros)")
+                
+               
+
 
             self.table_card = table_card
             self.table_card.visible = False
@@ -296,7 +305,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
 
                 # 3. Filtro por Grupo (Flexible y ajustado)
                 self.category_filter = ui.select(
-                    options=['ALARM', 'SET_POINT', 'CONFIG_PARAMETER', 'COMMAND', 'ANALOG_INPUT', 'ANALOG_OUTPUT', 'DIGITAL_INPUT', 'DIGITAL_OUTPUT', 'DEFAULT', 'STATUS', 'SYSTEM', 'COUNTERS'],
+                    options=[],
                     multiple=True, 
                     label='Filtrar por grupo', 
                     clearable=True, 
@@ -440,7 +449,7 @@ class HTMLConverterUI(ProcessMixin, HandleMixin, UpdateMixin, FilterMixin, Funct
             self.group_table_card = group_card
             self.group_table_card.visible = False
 
-   
+    
 
     
     

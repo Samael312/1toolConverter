@@ -411,7 +411,6 @@ class FunctionMixin:
             except:
                 pass
 
-    # ESTA FUNCIÓN VA FUERA O COMO MÉTODO ESTÁTICO (No puede tocar elementos de UI)
     @staticmethod
     def _heavy_processing_logic(rows, df_main, df_group, only_errors):
         import re # Importar dentro para el proceso hijo
@@ -469,4 +468,18 @@ class FunctionMixin:
             else:
                 # Si no hay filtro, mostramos todo actualizado
                 self.table.rows = df_display.replace({np.nan: ''}).to_dict('records')
-                self.table.update()    
+                self.table.update()
+
+    def refresh_filter_options(self):
+        """Extrae las categorías únicas del DataFrame procesado y actualiza el select."""
+        if self.processed_data is not None and not self.processed_data.empty:
+            # Obtener valores únicos, eliminar nulos y ordenar alfabéticamente
+            unique_cats = sorted([
+                str(cat) for cat in self.processed_data['system_category'].unique() 
+                if pd.notna(cat) and str(cat).strip() != ""
+            ])
+            
+            # Actualizar el componente UI
+            self.category_filter.options = unique_cats
+            self.category_filter.update()
+            logging.info(f"Filtros actualizados con: {unique_cats}")    

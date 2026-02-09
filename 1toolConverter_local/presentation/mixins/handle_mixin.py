@@ -509,3 +509,83 @@ class HandleMixin:
             import traceback
             logger.error(f" Error en handle_field_change({field_name}):\n" + traceback.format_exc())
             ui.notify(f"Error actualizando {label or field_name}: {ex}", type='negative')
+    
+    def handle_base_change(self, e):
+        """
+        Ajusta los registros cuando el usuario cambia entre Base 0 y Base 1.
+        """
+        if self.processed_data is None or self.processed_data.empty:
+            ui.notify('Primero carga un archivo', type='warning')
+            return
+
+        new_base = e.value  # 0 o 1
+        
+        # Calculamos el desplazamiento (offset)
+        # Si pasamos de Base 1 a Base 0 -> Restamos 1
+        # Si pasamos de Base 0 a Base 1 -> Sumamos 1
+        offset = new_base - self.current_base
+        
+        if offset == 0:
+            return
+
+        try:
+            # Convertimos a numérico por seguridad antes de operar
+            self.processed_data['register'] = pd.to_numeric(self.processed_data['register'], errors='coerce')
+            
+            # Aplicamos el desplazamiento
+            self.processed_data['register'] += offset
+            
+            # Guardamos el nuevo estado base
+            self.current_base = new_base
+            
+            # Notificamos al usuario
+            operacion = "incrementado" if offset > 0 else "disminuido"
+            ui.notify(f'Registros ajustados: se ha {operacion} 1 unidad (Base {new_base})')
+            
+            # Actualizamos la tabla en la interfaz
+            self.display_table()
+            
+        except Exception as ex:
+            ui.notify(f'Error al ajustar registros: {ex}', type='negative')
+    
+    def toggle_base(self):
+        """Intercambia entre Base 0 y Base 1 y ajusta los registros."""
+        if self.processed_data is None or self.processed_data.empty:
+            ui.notify('No hay datos cargados para ajustar', type='warning')
+            return
+
+        # Determinar nueva base y el desplazamiento (offset)
+        if self.current_base == 1:
+            new_base = 0
+            offset = -1
+            new_label = "Base 0"
+            new_color = "negative" # Rojo para alertar que es Base 0
+            msg = "Registros disminuidos en 1 (Ahora Base 0)"
+        else:
+            new_base = 1
+            offset = 1
+            new_label = "Base 1"
+            new_color = "primary" # Azul estándar
+            msg = "Registros incrementados en 1 (Ahora Base 1)"
+
+        try:
+            # 1. Aplicar el cambio al DataFrame
+            # Aseguramos que la columna sea numérica para evitar errores de concatenación
+            self.processed_data['register'] = pd.to_numeric(self.processed_data['register'], errors='coerce')
+            self.processed_data['register'] += offset
+            
+            # 2. Actualizar el estado de la clase
+            self.current_base = new_base
+            
+            # 3. Actualizar la UI del botón
+            self.base_selector.text = new_label
+            self.base_selector.props(f'color={new_color}')
+            
+            # 4. Refrescar la tabla y notificar
+            self.display_table()
+            self.update_group_table()
+            ui.notify(msg, type='info', icon='sync')
+            
+        except Exception as e:
+            logger.error(f"Error en toggle_base: {e}")
+            ui.notify("Error al ajustar la base de registros", type='negative')
