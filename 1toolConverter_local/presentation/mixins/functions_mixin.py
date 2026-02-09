@@ -361,7 +361,7 @@ class FunctionMixin:
         with ui.dialog().props('persistent') as loading_dialog:
             with ui.card().classes('items-center'):
                 ui.spinner(size='lg')
-                ui.label('Procesando cambios en segundo plano...')
+                ui.label('Guardando cambios...')
 
         loading_dialog.open()
         
