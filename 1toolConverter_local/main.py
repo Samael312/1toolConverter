@@ -42,16 +42,20 @@ def detect_keyter_excel_type(file_bytes: bytes) -> str:
         wb = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
         sheet_names = [s.upper().strip() for s in wb.sheetnames]
         
-        # Criterio para el Excel nuevo (MV-BV)
-        # Busca si existen hojas en español o formato nuevo
-        if any(name in sheet_names for name in ["ANALOGICAS", "ENTERAS", "DIGITAL"]):
+        set_names = set(sheet_names)
+
+        # 1. Caso Carel Español (Nombres únicos)
+        if {"ANALOGICAS", "ENTERAS", "DIGITAL"}.intersection(set_names):
             return "Carel"
-            
-        # Criterio para el Excel antiguo/estándar (Carel)
-        # Busca hojas en inglés mayúsculas
-        if any(name in sheet_names for name in ["ANALOG", "INTEGER", "BOOL"]):
+
+        # 2. Caso KeyterNew (Tiene BOOL)
+        elif "BOOL" in set_names and ("ANALOG" in set_names or "INTEGER" in set_names):
             return "KeyterNew"
-            
+
+        # 3. Caso Carel Inglés (No tiene BOOL, pero tiene los otros)
+        elif "ANALOG" in set_names or "INTEGER" in set_names:
+            return "Carel"
+                    
         return "UNKNOWN"
     except Exception as e:
         logger.error(f"Error detectando tipo de Excel: {e}")

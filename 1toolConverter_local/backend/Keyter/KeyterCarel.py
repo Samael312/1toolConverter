@@ -38,11 +38,21 @@ LIBRARY_COLUMNS = [
 
 COLUMN_MAPPING = {
     "MODBUS Address": "register",
+    "MODBUS address": "register",
     "Variable name": "name",
+    "Name of the variable": "name",
     "Descripción ES": "description",
+    "Descripción": "description",
     "Description EN": "description_en",
+    "Spanish Description": "description",
+    "English Description": "description_en",
+    "Description in english (EN)": "description_en",
+    "Description in spain (ES)": "description",
     "UOM": "unit",
+    "Unit": "unit",
     "Min": "minvalue",
+    "Min (0)": "minvalue",
+    "Max (1)": "maxvalue",
     "Max": "maxvalue",
     "Category": "system_category",
     "Read/Write": "access_type",
@@ -246,9 +256,16 @@ def _determine_data_length(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _apply_deep_classification(df: pd.DataFrame) -> pd.DataFrame:
-    if "system_category" not in df.columns or df["system_category"].isnull().all():
-        #logger.warning("[LOG:SYSTEM_CATEGORY] No se encontró columna de categoría. Asignando 'STATUS' por defecto.")
-        df["system_category"] = "HOLA"
+    """Asigna el nombre de la hoja si no hay categoría."""
+    if "system_category" not in df.columns:
+        df["system_category"] = np.nan
+        
+    if "sheet_name" in df.columns:
+        # Usamos el nombre de la hoja como categoría final de respaldo
+        df["system_category"] = df["system_category"].fillna(df["sheet_name"].str.upper().str.strip())
+    
+    # Aseguramos que no queden nulos
+    df["system_category"] = df["system_category"].fillna("GENERAL")
     return df
 
 def _apply_system_configuratiom(df: pd.DataFrame) -> pd.DataFrame:
@@ -328,13 +345,39 @@ def _process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         
     return df
 
+
+def _get_best_header(ws, initial_row: int) -> tuple:
+    """
+    Intenta obtener encabezados de la fila inicial (3). 
+    Si no encuentra columnas clave, intenta con la siguiente (4).
+    Retorna (lista_de_encabezados, fila_usada)
+    """
+    column_keywords = ["MODBUS ADDRESS", "VARIABLE NAME", "DESCRIPCIÓN ES", "UOM"]
+    
+    current_row = initial_row
+    while current_row <= initial_row + 1:
+        cells = list(ws[current_row])
+        headers = [str(c.value).strip() if c.value else f"col_{i}" for i, c in enumerate(cells)]
+        
+        # Comprobar si alguno de los encabezados mapeados está en esta fila
+        if any(h.upper() in column_keywords for h in headers):
+            logger.info(f"Encabezados válidos encontrados en la fila {current_row}")
+            return headers, current_row
+        
+        current_row += 1
+    
+    # Si ninguno convence, devolvemos la fila 3 por defecto
+    logger.warning(f"No se detectaron encabezados claros. Usando fila {initial_row} por defecto.")
+    cells = list(ws[initial_row])
+    return [str(c.value).strip() if c.value else f"col_{i}" for i, c in enumerate(cells)], initial_row
+
 # =====================================================
 # PROCESAMIENTO DESDE BYTES (Para la Web UI)
 # =====================================================
 
 def process_excel(
     excel_content: bytes, 
-    header_row: int = 3
+    header_row: _get_best_header = 3
 ) -> Optional[pd.DataFrame]:
     logger.info("--- Procesando Excel desde memoria (Bytes) ---")
 
@@ -364,49 +407,35 @@ def process_excel(
     for sheet_name in found:
         try:
             ws = wb[sheet_name]
-            if getattr(ws, "max_row", 0) <= header_row:
-                continue
-
-            header_cells = list(ws[header_row])
-            headers = [str(c.value).strip() if c.value else f"col_{i}" for i, c in enumerate(header_cells)]
+            # Lógica de detección dinámica de encabezado
+            headers, used_row = _get_best_header(ws, header_row)
 
             rows = []
-            for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+            # Empezamos a leer desde la fila inmediatamente inferior a la detectada
+            for row in ws.iter_rows(min_row=used_row + 1, values_only=True):
                 if not any(row): continue 
                 row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
-                # CRÍTICO: Añadimos el nombre de la hoja para el mapeo contextual
                 row_dict["sheet_name"] = sheet_name
                 rows.append(row_dict)
 
             df_raw = pd.DataFrame(rows)
-            if df_raw.empty: continue
-
-            df_proc = _process_dataframe(df_raw)
-            logger.info(f"-> Hoja '{sheet_name}' procesada: {len(df_proc)} filas.")
-            processed_dfs.append(df_proc)
+            if not df_raw.empty:
+                processed_dfs.append(_process_dataframe(df_raw))
 
         except Exception as e:
-            logger.error(f"Error procesando hoja '{sheet_name}': {e}", exc_info=True)
-            continue
+            logger.error(f"Error en hoja '{sheet_name}': {e}")
 
-    if not processed_dfs:
-        return None
-
+   
+    if not processed_dfs: return None
     df_total = pd.concat(processed_dfs, ignore_index=True)
     df_total["id"] = range(1, len(df_total) + 1)
-    df_total = _add_default_columns(df_total)
-    
-    for col in LIBRARY_COLUMNS:
-        if col not in df_total.columns:
-            df_total[col] = None
-    
     return df_total.reindex(columns=LIBRARY_COLUMNS)
 
 # =====================================================
 # PROCESAMIENTO DE ARCHIVO COMPLETO
 # =====================================================
 
-def process_excel_file_carel(path: str, header_row: int = 3) -> Optional[pd.DataFrame]:
+def process_excel_file_carel(path: str, header_row: _get_best_header = 3) -> Optional[pd.DataFrame]:
     logger.info(f"--- Iniciando lectura del archivo: {path} ---")
     
     try:
@@ -424,45 +453,30 @@ def process_excel_file_carel(path: str, header_row: int = 3) -> Optional[pd.Data
     processed_dfs = []
 
     for sheet in found:
-        logger.info(f"Leyendo hoja: '{sheet}'...")
         ws = wb[sheet]
-        
-        if getattr(ws, "max_row", 0) <= header_row:
-            continue
-            
         try:
-            header_cells = list(ws[header_row])
-            headers = [str(c.value).strip() if c.value else f"col_{i}" for i, c in enumerate(header_cells)]
+            # Lógica de detección dinámica de encabezado
+            headers, used_row = _get_best_header(ws, header_row)
             
             data_rows = []
-            for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+            for row in ws.iter_rows(min_row=used_row + 1, values_only=True):
                 if not any(row): continue
                 row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
-                # CRÍTICO: Añadimos el nombre de la hoja para el mapeo contextual
                 row_dict["sheet_name"] = sheet
                 data_rows.append(row_dict)
             
             df_raw = pd.DataFrame(data_rows)
-            if df_raw.empty: continue
-                
-            df_proc = _process_dataframe(df_raw)
-            processed_dfs.append(df_proc)
-            logger.info(f"-> OK: Hoja '{sheet}' procesada correctamente ({len(df_proc)} filas).")
+            if not df_raw.empty:
+                processed_dfs.append(_process_dataframe(df_raw))
+                logger.info(f"-> OK: Hoja '{sheet}' (Fila encabezado: {used_row})")
             
         except Exception as e:
-            logger.error(f"-> ERROR procesando hoja '{sheet}': {e}", exc_info=True)
+            logger.error(f"-> ERROR en hoja '{sheet}': {e}")
 
-    if not processed_dfs:
-        return None
-
+    # ... (resto del código final igual)
+    if not processed_dfs: return None
     final_df = pd.concat(processed_dfs, ignore_index=True)
     final_df["id"] = range(1, len(final_df) + 1)
-    final_df = _add_default_columns(final_df)
-    
-    for col in LIBRARY_COLUMNS:
-        if col not in final_df.columns:
-            final_df[col] = None
-            
     return final_df.reindex(columns=LIBRARY_COLUMNS)
 
 # =====================================================
